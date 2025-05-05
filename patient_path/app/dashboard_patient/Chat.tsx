@@ -1,127 +1,123 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { colors } from '../../theme';
 
-interface Conversation {
-  _id: string;
-  doctorId?: {
+type Doctor = {
     _id: string;
     nom: string;
     prenom: string;
-    specialty?: string;
+    medecinInfo?: {
+      photoPath?: string;
+    };
   };
-  type: 'chatbot' | 'doctor';
-}
+  
 
-const API_URL = 'http://192.168.135.83:5001'; // adapte à ton IP mobile si besoin
+type Conversation = {
+  _id: string;
+  doctor: Doctor;
+};
 
-const Chat = () => {
-  const router = useRouter();
+export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
+  const router = useRouter();
+  const patientId = localStorage.getItem('userId'); // ou AsyncStorage si mobile
 
   useEffect(() => {
-    const fetchConversations = async () => {
-      const storedId = await AsyncStorage.getItem('userId');
-      if (!storedId) return;
-      setUserId(storedId);
+    if (patientId) {
+      fetchConversations();
+    }
+  }, [patientId]);
 
-      try {
-        const res = await axios.get(`${API_URL}/api/conversations/${storedId}`);
-        setConversations([
-          { _id: 'chatbot', type: 'chatbot' },
-          ...(res.data as Conversation[]),
-        ]);
-      } catch (err) {
-        console.error('Erreur chargement conversations :', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchConversations();
-  }, []);
-
-  const goToChat = (conv: Conversation) => {
-    if (conv.type === 'chatbot') {
-     
-    } else {
-      router.push({
-        pathname: '/dashboard_patient/ChatScreen',
-        params: { doctorId: conv.doctorId?._id },
-      });
+  const fetchConversations = async () => {
+    try {
+      const res = await axios.get(`http://192.168.135.83:5001/api/conversations/patient/${patientId}`);
+      setConversations(res.data);
+    } catch (error) {
+      console.error("Erreur lors du chargement des conversations :", error);
     }
   };
 
-  const renderItem = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => goToChat(item)}
-    >
-      <Text style={styles.name}>
-        {item.type === 'chatbot'
-          ? '🤖 Chatbot Médical'
-          : `${item.doctorId?.prenom} ${item.doctorId?.nom}`}
-      </Text>
-      {item.type === 'doctor' && (
-        <Text style={styles.specialty}>
-          {item.doctorId?.specialty || 'Spécialité inconnue'}
-        </Text>
-      )}
-    </TouchableOpacity>
-  );
+  const handleDoctorPress = (doctorId: string) => {
+    router.push(`/dashboard_patient/ChatScreen?id=${doctorId}`);
+  };
+
+  const handleChatbotPress = () => {
+    router.push(`/dashboard_patient/ChatScreen?id=chatbot`);
+  };
+
+  const renderItem = ({ item }: { item: Conversation }) => {
+    const doctor = item.doctor;
+    return (
+      <TouchableOpacity style={styles.card} onPress={() => handleDoctorPress(doctor._id)}>
+       <Image
+  source={{ uri: doctor.medecinInfo?.photoPath || 'https://cdn-icons-png.flaticon.com/512/3870/3870822.png' }}
+  style={styles.avatar}
+/>
+
+        <View style={styles.info}>
+          <Text style={styles.name}>{doctor.nom} {doctor.prenom}</Text>
+          <Text style={styles.subtitle}>Conversation avec le médecin</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>💬 Messagerie</Text>
-      {loading ? (
-        <ActivityIndicator size="large" color={colors.primary} />
-      ) : (
-        <FlatList
-          data={conversations}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={{ paddingBottom: 20 }}
+      {/* Chatbot en haut */}
+      <TouchableOpacity style={styles.card} onPress={handleChatbotPress}>
+        <Image
+          source={{ uri: 'https://cdn-icons-png.flaticon.com/512/4712/4712100.png' }}
+          style={styles.avatar}
         />
-      )}
+        <View style={styles.info}>
+          <Text style={styles.name}>Chatbot Médical</Text>
+          <Text style={styles.subtitle}>Cliquez ici pour discuter avec l’IA</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Conversations */}
+      <FlatList
+        data={conversations}
+        keyExtractor={(item) => item._id}
+        renderItem={renderItem}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
     </View>
   );
-};
-
-export default Chat;
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
-    padding: 20,
-  },
-  header: {
-    fontSize: 24,
-    color: colors.primary,
-    fontWeight: 'bold',
-    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#F5FCFF',
   },
   card: {
-    backgroundColor: colors.surface,
-    padding: 16,
-    borderRadius: 10,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 12,
     marginBottom: 12,
-    borderColor: colors.border,
-    borderWidth: 1,
+    alignItems: 'center',
+    elevation: 3,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 12,
+  },
+  info: {
+    flex: 1,
   },
   name: {
-    fontSize: 18,
-    color: colors.text,
+    fontSize: 16,
     fontWeight: '600',
   },
-  specialty: {
-    fontSize: 14,
-    color: colors.muted,
-    marginTop: 4,
+  subtitle: {
+    fontSize: 13,
+    color: '#666',
   },
 });

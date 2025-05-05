@@ -1,145 +1,170 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
-import { colors } from '../../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.135.83:5001'; // ou ton IP locale exacte
 
+const API_BASE = 'http://192.168.135.83:5001';
 
 interface Appointment {
-  _id: string;
-  date: string;
-  doctorName: string;
-}
-
-interface Doctor {
-  _id: string;
-  nom: string;
-  prenom: string;
-  specialty: string;
-}
-
-const Home = () => {
+    type: string;
+    nomMedecin?: string;
+    nomLabo?: string;
+    date: string;
+  }
+  
+  interface Doctor {
+    _id: string;
+    nom: string;
+    prenom: string;
+    specialite: string;
+  }
+  
+  interface Article {
+    titre: string;
+    auteur: string;
+  }
+  
+export default function Home() {
+  const router = useRouter();
   const [userName, setUserName] = useState('');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const router = useRouter();
+const [doctors, setDoctors] = useState<Doctor[]>([]);
+const [articles, setArticles] = useState<Article[]>([]);
 
-  const userId = '123456'; // à remplacer par l'ID réel depuis le contexte/auth
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const profileRes = await axios.get(`${API_BASE_URL}/api/users/${userId}`);
-        const userData = profileRes.data as { nom: string; prenom: string };
-        setUserName(`${userData.prenom} ${userData.nom}`);
-  
-        const appointmentRes = await axios.get(`${API_BASE_URL}/api/appointments?patientId=${userId}`);
-        setAppointments(appointmentRes.data as Appointment[]);
-  
-        const doctorRes = await axios.get(`${API_BASE_URL}/api/medecins-consultes/${userId}`);
-        setDoctors(doctorRes.data as Doctor[]);
-      } catch (err) {
-        console.error('Erreur chargement dashboard:', err);
-      }
-    };
-  
-    fetchData();
-  }, []);
+useEffect(() => {
+  const loadData = async () => {
+    const userId = localStorage.getItem('userId');
+    fetchUser(userId);
+    fetchAppointments(userId);
+    fetchDoctors(userId);
+    fetchArticles();
+  };
+  loadData();
+}, []);
+
+  const fetchUser = async (id: string | null) => {
+    if (!id) return;
+    try {
+      const res = await axios.get(`${API_BASE}/api/users/${id}`);
+      setUserName(res.data.nom);
+    } catch (err) {
+      console.error('Erreur récupération utilisateur', err);
+    }
+  };
+
+  const fetchAppointments = async (id: string | null) => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/patient/appointments/${id}`);
+      setAppointments(res.data.slice(0, 3)); // max 3
+    } catch (err) {
+      console.error('Erreur rendez-vous', err);
+    }
+  };
+
+  const fetchDoctors = async (id: string | null) => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/patient/doctors/${id}`);
+      setDoctors(res.data.slice(0, 3));
+    } catch (err) {
+      console.error('Erreur médecins', err);
+    }
+  };
+
+  const fetchArticles = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/articles`);
+      setArticles(res.data.slice(0, 3));
+    } catch (err) {
+      console.error('Erreur articles', err);
+    }
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.welcome}>Bienvenue, {userName.split(' ')[0]}</Text>
+    <ScrollView style={styles.container}>
+      <Text style={styles.welcome}>Bienvenue, {userName} 👋</Text>
 
       <Text style={styles.sectionTitle}>📅 Prochains rendez-vous</Text>
       {appointments.length === 0 ? (
-        <Text style={styles.empty}>Aucun rendez-vous à venir.</Text>
+        <Text style={styles.empty}>Aucun rendez-vous prévu</Text>
       ) : (
-        <FlatList
-          data={appointments.slice(0, 3)}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardText}>👨‍⚕️ {item.doctorName}</Text>
-              <Text style={styles.cardSub}>🕒 {new Date(item.date).toLocaleString('fr-FR')}</Text>
-            </View>
-          )}
-        />
+        appointments.map((item, index) => (
+          <View key={index} style={styles.card}>
+            <Text style={styles.cardTitle}>{item.type} avec {item.nomMedecin || item.nomLabo}</Text>
+            <Text style={styles.cardSubtitle}>{new Date(item.date).toLocaleDateString()}</Text>
+          </View>
+        ))
       )}
 
-      <Text style={styles.sectionTitle}>👨‍⚕️ Médecins consultés</Text>
+      <Text style={styles.sectionTitle}>🩺 Mes médecins</Text>
       {doctors.length === 0 ? (
-        <Text style={styles.empty}>Aucun médecin consulté.</Text>
+        <Text style={styles.empty}>Aucun médecin encore consulté</Text>
       ) : (
-        <FlatList
-          horizontal
-          data={doctors}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.doctorCard}
-              onPress={() => router.push(`/dashboard_patient/DoctorProfile?id=${item._id}`)}
-            >
-              <Text style={styles.cardText}>{item.prenom} {item.nom}</Text>
-              <Text style={styles.cardSub}>{item.specialty}</Text>
-            </TouchableOpacity>
-          )}
-          showsHorizontalScrollIndicator={false}
-        />
+        doctors.map((doc, index) => (
+          <TouchableOpacity
+            key={index}
+            style={styles.card}
+            onPress={() => router.push(`/dashboard_patient/DoctorProfile?id=${doc._id}`)}
+          >
+            <Text style={styles.cardTitle}>{doc.nom} {doc.prenom}</Text>
+            <Text style={styles.cardSubtitle}>{doc.specialite}</Text>
+          </TouchableOpacity>
+        ))
       )}
-    </View>
+
+      <Text style={styles.sectionTitle}>📰 Articles récents</Text>
+      {articles.length === 0 ? (
+        <Text style={styles.empty}>Aucun article disponible</Text>
+      ) : (
+        articles.map((article, index) => (
+          <View key={index} style={styles.card}>
+            <Text style={styles.cardTitle}>{article.titre}</Text>
+            <Text style={styles.cardSubtitle}>Dr. {article.auteur}</Text>
+          </View>
+        ))
+      )}
+    </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.background,
-    flex: 1,
-    padding: 20,
+    padding: 16,
+    backgroundColor: '#f7fdfc',
   },
   welcome: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.primary,
+    fontWeight: '700',
+    color: '#03C490',
     marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 18,
-    color: colors.accent,
-    marginTop: 10,
+    fontWeight: '600',
+    marginTop: 16,
     marginBottom: 8,
+    color: '#038A91',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 16,
     fontWeight: '600',
   },
+  cardSubtitle: {
+    fontSize: 14,
+    color: '#555',
+  },
   empty: {
-    color: colors.muted,
+    color: '#999',
     fontStyle: 'italic',
     marginBottom: 10,
   },
-  card: {
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  doctorCard: {
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginRight: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  cardText: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  cardSub: {
-    color: colors.muted,
-    marginTop: 4,
-  },
 });
-
-export default Home;

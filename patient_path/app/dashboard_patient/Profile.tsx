@@ -1,110 +1,192 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import axios from 'axios';
-import { colors } from '../../theme';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.135.83:5001';
+interface Patient {
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  groupeSanguin?: string;
+  maladiesChroniques?: string;
+  taille?: number;
+  poids?: number;
+  photo?: string;
+}
 
-const Profile = () => {
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+interface Rapport {
+  _id: string;
+  nomMedecin: string;
+  date: string;
+  contenu: string;
+}
 
-  const fetchProfile = async () => {
-    try {
-      setLoading(true);
-      const id = await AsyncStorage.getItem('userId');
-      const response = await axios.get(`${API_BASE_URL}/api/users/${id}`);
-      setProfile(response.data);
-    } catch (err) {
-      setError("Erreur lors du chargement du profil.");
-    } finally {
-      setLoading(false);
+interface Analyse {
+  _id: string;
+  laboratoire: string;
+  date: string;
+  resultat: string;
+}
+
+const ProfileScreen = () => {
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [rapports, setRapports] = useState<Rapport[]>([]);
+  const [analyses, setAnalyses] = useState<Analyse[]>([]);
+
+  const userId = 'exemple_id_patient'; // À remplacer par le vrai ID (ex: depuis le contexte ou AsyncStorage)
+
+  useEffect(() => {
+    axios.get(`http://192.168.135.83:5001/api/patient/profile/${userId}`)
+      .then(res => setPatient(res.data))
+      .catch(err => console.error('Erreur profil patient', err));
+
+    axios.get(`http://192.168.135.83:5001/api/patient/rapports/${userId}`)
+      .then(res => setRapports(res.data))
+      .catch(err => console.error('Erreur chargement rapports', err));
+
+    axios.get(`http://192.168.135.83:5001/api/patient/analyses/${userId}`)
+      .then(res => setAnalyses(res.data))
+      .catch(err => console.error('Erreur chargement analyses', err));
+  }, []);
+
+  const handleInputChange = (field: keyof Patient, value: string) => {
+    if (patient) {
+      setPatient({ ...patient, [field]: value });
     }
   };
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  const handleSave = () => {
+    axios.put(`http://192.168.135.83:5001/api/patient/profile/${userId}`, patient)
+      .then(() => Alert.alert('✅ Succès', 'Profil mis à jour avec succès.'))
+      .catch(() => Alert.alert('❌ Erreur', 'Échec de la mise à jour.'));
+  };
 
-  if (loading) return <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />;
-  if (error) return <Text style={styles.error}>{error}</Text>;
+  if (!patient) {
+    return <Text style={styles.loading}>Chargement du profil...</Text>;
+  }
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>👤 Mon Profil</Text>
-      {profile?.photo && (
-        <Image source={{ uri: `${API_BASE_URL}${profile.photo}` }} style={styles.profileImage} />
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Mon Profil</Text>
+
+      {patient.photo && (
+        <Image source={{ uri: patient.photo }} style={styles.profileImage} />
       )}
-      <View style={styles.info}>
-        <Text style={styles.label}>Nom:</Text>
-        <Text style={styles.value}>{profile.nom}</Text>
 
-        <Text style={styles.label}>Prénom:</Text>
-        <Text style={styles.value}>{profile.prenom}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Taille (cm)"
+        keyboardType="numeric"
+        value={patient.taille?.toString() || ''}
+        onChangeText={(text) => handleInputChange('taille', text)}
+      />
 
-        <Text style={styles.label}>Email:</Text>
-        <Text style={styles.value}>{profile.email}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Poids (kg)"
+        keyboardType="numeric"
+        value={patient.poids?.toString() || ''}
+        onChangeText={(text) => handleInputChange('poids', text)}
+      />
 
-        <Text style={styles.label}>Téléphone:</Text>
-        <Text style={styles.value}>{profile.telephone}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Groupe sanguin"
+        value={patient.groupeSanguin || ''}
+        onChangeText={(text) => handleInputChange('groupeSanguin', text)}
+      />
 
-        <Text style={styles.label}>Adresse:</Text>
-        <Text style={styles.value}>{profile.adresse}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Maladies chroniques"
+        value={patient.maladiesChroniques || ''}
+        onChangeText={(text) => handleInputChange('maladiesChroniques', text)}
+      />
 
-        <Text style={styles.label}>CIN:</Text>
-        <Text style={styles.value}>{profile.cin}</Text>
+      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+        <Text style={styles.saveText}>💾 Enregistrer</Text>
+      </TouchableOpacity>
 
-        <Text style={styles.label}>Téléphone d'urgence:</Text>
-        <Text style={styles.value}>{profile.emergencyPhone}</Text>
+      <Text style={styles.subTitle}>📄 Rapports Médicaux</Text>
+      {rapports.map((r) => (
+        <View key={r._id} style={styles.card}>
+          <Text style={styles.bold}>{r.nomMedecin}</Text>
+          <Text>{new Date(r.date).toLocaleDateString('fr-FR')}</Text>
+          <Text>{r.contenu}</Text>
+        </View>
+      ))}
 
-        <Text style={styles.label}>Groupe sanguin:</Text>
-        <Text style={styles.value}>{profile.bloodType || '-'}</Text>
-
-        <Text style={styles.label}>Maladies chroniques:</Text>
-        <Text style={styles.value}>{profile.chronicDiseases || '-'}</Text>
-      </View>
+      <Text style={styles.subTitle}>🔬 Résultats de laboratoire</Text>
+      {analyses.map((a) => (
+        <View key={a._id} style={styles.card}>
+          <Text style={styles.bold}>{a.laboratoire}</Text>
+          <Text>{new Date(a.date).toLocaleDateString('fr-FR')}</Text>
+          <Text>{a.resultat}</Text>
+        </View>
+      ))}
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    padding: 20,
+    padding: 16,
+    backgroundColor: '#F5FCFF',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 20,
+    marginBottom: 12,
+    color: '#038A91',
+  },
+  loading: {
+    marginTop: 50,
+    textAlign: 'center',
+    fontSize: 16,
   },
   profileImage: {
     width: 120,
     height: 120,
     borderRadius: 60,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  info: {
-    marginTop: 10,
+  input: {
+    backgroundColor: '#fff',
+    padding: 10,
+    marginVertical: 8,
+    borderRadius: 8,
+    borderColor: '#ccc',
+    borderWidth: 1,
   },
-  label: {
+  saveButton: {
+    backgroundColor: '#03C490',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  saveText: {
+    color: '#fff',
     fontWeight: 'bold',
-    color: colors.accent,
-    marginTop: 10,
   },
-  value: {
-    fontSize: 16,
-    color: colors.text,
-  },
-  error: {
-    color: 'red',
+  subTitle: {
+    fontSize: 18,
     marginTop: 20,
-    textAlign: 'center',
+    marginBottom: 8,
+    color: '#333',
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderColor: '#ddd',
+    borderWidth: 1,
+  },
+  bold: {
+    fontWeight: 'bold',
+    color: '#038A91',
   },
 });
 
-export default Profile;
+export default ProfileScreen;

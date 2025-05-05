@@ -154,6 +154,27 @@ const storageArticles = new CloudinaryStorage({
     allowed_formats: ['jpg', 'png', 'jpeg']
   }
 });
+// Exemple de route Express
+app.get('/api/search', async (req, res) => {
+    const { query, specialite, ville } = req.query;
+  
+    const filters = {
+      ...(query && {
+        $or: [
+          { nom: { $regex: query, $options: 'i' } },
+          { prenom: { $regex: query, $options: 'i' } },
+        ]
+      }),
+      ...(specialite && { specialite: { $regex: specialite, $options: 'i' } }),
+      ...(ville && { adresse: { $regex: ville, $options: 'i' } }),
+    };
+  
+    const medecins = await User.find({ role: 'medecin', ...filters, isValidated: true });
+    const labos = await User.find({ role: 'laboratoire', ...filters, isValidated: true });
+  
+    res.json([...medecins, ...labos]);
+  });
+  
 
 // Modifier la configuration multer pour utiliser Cloudinary
 const uploadArticleImage = multer({ storage: storageArticles });
@@ -235,6 +256,7 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+
 const notificationSchema = new mongoose.Schema({
     message: { type: String, required: true },
     date: { type: Date, default: Date.now }
@@ -278,7 +300,7 @@ app.post('/signup', async(req, res) => {
             adresse,
             cin,
             password: hashedPassword,
-            roles: [role]
+            roles: [roles]
         });
 
         await newUser.save();
@@ -322,7 +344,60 @@ app.post('/login', async (req, res) => {
     }
   });
   
-
+  app.get('/api/users/:id', async (req, res) => {
+    try {
+      const user = await Patient.findById(req.params.id); // ou Doctor, selon le rôle
+      if (!user) return res.status(404).json({ message: 'Utilisateur introuvable' });
+      res.json(user);
+    } catch (error) {
+      console.error('Erreur utilisateur:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
+  app.get('/api/patient/appointments/:id', async (req, res) => {
+    try {
+      const appointments = await Appointment.find({ patientId: req.params.id })
+        .sort({ date: 1 });
+      res.json(appointments);
+    } catch (error) {
+      console.error('Erreur appointments:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
+  app.get('/api/patient/doctors/:id', async (req, res) => {
+    try {
+      const appointments = await Appointment.find({ patientId: req.params.id });
+      const doctorIds = [...new Set(appointments.map(app => app.doctorId))];
+      const doctors = await Doctor.find({ _id: { $in: doctorIds } });
+      res.json(doctors);
+    } catch (error) {
+      console.error('Erreur médecins:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
+  app.get('/api/articles', async (req, res) => {
+    try {
+      const articles = await Article.find().sort({ createdAt: -1 });
+      res.json(articles);
+    } catch (error) {
+      console.error('Erreur articles:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
+  
+  app.get('/api/search', async (req, res) => {
+    try {
+      const users = await User.find({ isValidated: true }).limit(10);
+      console.log('Résultats trouvés :', users.length);
+      res.json(users);
+    } catch (err) {
+      console.error('Erreur recherche backend :', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    }
+  });
+  
+  
+  
 // Route pour récupérer la liste des médecins validés
 app.get('/api/doctors-for-labs', async (req, res) => {
     try {

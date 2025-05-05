@@ -1,244 +1,121 @@
-// app/dashboard_patient/Appointments.tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Button, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import axios from 'axios';
-import { colors } from '../../theme';
 
-const API_URL = 'http://192.168.135.83:5001';
+interface Appointment {
+  _id: string;
+  type: 'medecin' | 'laboratoire' | 'hopital';
+  nomMedecin?: string;
+  nomLabo?: string;
+  nomHopital?: string;
+  date: string;
+  statut: 'confirmé' | 'en attente' | 'refusé';
+}
 
-type Doctor = {
-    _id: string;
-    nom: string;
-    adresse: string;
-    roles: string[];
-  };
-  
-  type Lab = {
-    _id: string;
-    nom: string;
-    adresse: string;
-  };
-  
-  type Hospital = {
-    _id: string;
-    nom: string;
-    adresse: string;
-    roles: string[];
-  };
-  
-const Appointments = () => {
-  const [userId, setUserId] = useState('');
-  const [type, setType] = useState<'medecin' | 'hopital' | 'laboratoire' | ''>('');
-  const [specialty, setSpecialty] = useState('');
-  const [reason, setReason] = useState('');
-  const [date, setDate] = useState('');
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-const [labs, setLabs] = useState<Lab[]>([]);
-const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [selectedId, setSelectedId] = useState('');
+const AppointmentsScreen = () => {
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const userId = localStorage.getItem('userId');
 
   useEffect(() => {
-    const id = localStorage.getItem('userId');
-    if (id) {
-      setUserId(id);
-      fetchDoctors();
-      fetchLabs();
-      fetchHospitals();
-    }
+    axios
+      .get(`http://192.168.135.83:5001/api/patient/appointments/${userId}`)
+      .then((res) => {
+        setAppointments(res.data);
+      })
+      .catch((err) => {
+        console.error('Erreur lors du chargement des rendez-vous :', err);
+      });
   }, []);
 
-  const fetchDoctors = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/medecins-valides`);
-      setDoctors(res.data as Doctor[]);
-    } catch {
-      setDoctors([]);
-    }
-  };
-  
-  const fetchLabs = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/labs-valides`);
-      setLabs(res.data as Lab[]);
-    } catch {
-      setLabs([]);
-    }
-  };
-  
-  const fetchHospitals = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/medecins-valides`);
-      const all = res.data as Hospital[];
-      const onlyHospitals = all.filter((u) => u.roles.includes('hopital'));
-      setHospitals(onlyHospitals);
-    } catch {
-      setHospitals([]);
-    }
-  };
-  
-
-  const handleSubmit = async () => {
-    if (!userId || !selectedId || !date || !reason) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs.');
-      return;
-    }
-
-    try {
-      if (type === 'medecin') {
-        await axios.post(`${API_URL}/api/appointments`, {
-          patientId: userId,
-          doctorId: selectedId,
-          date,
-          reason
-        });
-      } else if (type === 'laboratoire') {
-        await axios.post(`${API_URL}/api/lab-appointments`, {
-          patientId: userId,
-          labId: selectedId,
-          date,
-          reason
-        });
-      } else if (type === 'hopital') {
-        await axios.post(`${API_URL}/api/hospital-appointments`, {
-          patientId: userId,
-          hospitalId: selectedId,
-          specialty
-        });
-      }
-
-      Alert.alert('Succès', 'Rendez-vous demandé avec succès.');
-      setDate('');
-      setReason('');
-      setSelectedId('');
-      setSpecialty('');
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible de prendre le rendez-vous.');
-    }
+  const renderAppointmentLabel = (item: Appointment) => {
+    if (item.type === 'medecin') return item.nomMedecin;
+    if (item.type === 'laboratoire') return item.nomLabo;
+    if (item.type === 'hopital') return item.nomHopital;
+    return 'Professionnel';
   };
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Prendre un Rendez-vous</Text>
+      <Text style={styles.title}>Historique des rendez-vous</Text>
 
-      <Text style={styles.label}>Type de rendez-vous</Text>
-      <Picker
-        selectedValue={type}
-        onValueChange={(val) => setType(val)}
-        style={styles.picker}
-      >
-        <Picker.Item label="Choisir..." value="" />
-        <Picker.Item label="Médecin" value="medecin" />
-        <Picker.Item label="Hôpital" value="hopital" />
-        <Picker.Item label="Laboratoire" value="laboratoire" />
-      </Picker>
-
-      {type !== '' && (
-        <>
-          <Text style={styles.label}>
-            {type === 'medecin'
-              ? 'Médecin'
-              : type === 'hopital'
-              ? 'Hôpital'
-              : 'Laboratoire'}
-          </Text>
-          <Picker
-            selectedValue={selectedId}
-            onValueChange={(val) => setSelectedId(val)}
-            style={styles.picker}
-          >
-            <Picker.Item label="Sélectionner..." value="" />
-            {(type === 'medecin' ? doctors : type === 'hopital' ? hospitals : labs).map((item: any) => (
-              <Picker.Item
-                key={item._id}
-                label={`${item.nom} - ${item.adresse}`}
-                value={item._id}
-              />
-            ))}
-          </Picker>
-        </>
+      {appointments.length === 0 ? (
+        <Text style={styles.emptyText}>Aucun rendez-vous trouvé.</Text>
+      ) : (
+        appointments.map((appointment) => (
+          <View key={appointment._id} style={styles.card}>
+            <Text style={styles.type}>
+              {appointment.type.charAt(0).toUpperCase() + appointment.type.slice(1)}
+            </Text>
+            <Text style={styles.label}>{renderAppointmentLabel(appointment)}</Text>
+            <Text style={styles.date}>
+              📅 {new Date(appointment.date).toLocaleDateString('fr-FR')}
+            </Text>
+            <Text style={[styles.status, getStatusStyle(appointment.statut)]}>
+              Statut : {appointment.statut}
+            </Text>
+          </View>
+        ))
       )}
-
-      {type === 'hopital' && (
-        <>
-          <Text style={styles.label}>Spécialité demandée</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Spécialité"
-            value={specialty}
-            onChangeText={setSpecialty}
-          />
-        </>
-      )}
-
-      {(type === 'medecin' || type === 'laboratoire') && (
-        <>
-          <Text style={styles.label}>Date et heure</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="AAAA-MM-JJ HH:MM"
-            value={date}
-            onChangeText={setDate}
-          />
-          <Text style={styles.label}>Raison</Text>
-          <TextInput
-            style={[styles.input, { height: 80 }]}
-            multiline
-            placeholder="Décrivez votre besoin"
-            value={reason}
-            onChangeText={setReason}
-          />
-        </>
-      )}
-
-      <TouchableOpacity style={styles.button} onPress={handleSubmit}>
-        <Text style={styles.buttonText}>Envoyer la demande</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 };
 
+const getStatusStyle = (statut: string) => {
+  switch (statut) {
+    case 'confirmé':
+      return { color: 'green' };
+    case 'refusé':
+      return { color: 'red' };
+    default:
+      return { color: 'orange' };
+  }
+};
+
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.background,
-    padding: 20,
     flex: 1,
+    padding: 16,
+    backgroundColor: '#F5FCFF',
   },
   title: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 20,
+    marginBottom: 16,
+    color: '#333',
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 20,
+    color: '#666',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  type: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#038A91',
   },
   label: {
-    marginTop: 10,
     fontSize: 16,
-    color: colors.text,
+    marginTop: 4,
+    color: '#444',
   },
-  picker: {
-    backgroundColor: colors.surface,
-    marginVertical: 8,
+  date: {
+    marginTop: 6,
+    color: '#666',
   },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 6,
-    padding: 10,
-    marginVertical: 8,
-    color: colors.text,
-  },
-  button: {
-    backgroundColor: colors.primary,
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: colors.white,
-    fontWeight: '600',
+  status: {
+    marginTop: 8,
+    fontWeight: 'bold',
   },
 });
 
-export default Appointments;
+export default AppointmentsScreen;

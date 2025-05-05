@@ -3,49 +3,49 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Alert } from 'react-na
 import { useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 
-interface Medecin {
+interface Laboratoire {
   _id: string;
   nom: string;
-  prenom: string;
-  specialite: string;
   adresse: string;
+  type: string;
   photo?: string;
   note?: number;
 }
 
-const DoctorProfile = () => {
+const LaboProfile = () => {
   const { id } = useLocalSearchParams();
-  const [medecin, setMedecin] = useState<Medecin | null>(null);
+  const [labo, setLabo] = useState<Laboratoire | null>(null);
 
-  const patientId = 'patient_id_placeholder'; // Remplace par un ID dynamique si nécessaire
+  const patientId = 'patient_id_placeholder'; // à remplacer dynamiquement si besoin
 
   useEffect(() => {
-    const fetchDoctor = async () => {
+    const fetchLabo = async () => {
       try {
-        const response = await axios.get(`http://192.168.135.83:5001/api/medecins/${id}`);
-        setMedecin(response.data);
+        const response = await axios.get(`http://192.168.135.83:5001/api/laboratoires/${id}`);
+        setLabo(response.data);
       } catch (err) {
-        console.error('Erreur lors du chargement du profil du médecin', err);
+        console.error('Erreur lors du chargement du profil du labo', err);
       }
     };
 
-    if (id) fetchDoctor();
+    if (id) fetchLabo();
   }, [id]);
 
   const handleRequestAppointment = async () => {
     try {
       await axios.post(`http://192.168.135.83:5001/api/appointments/request`, {
-        medecinId: id,
+        laboratoireId: id,
         patientId: patientId,
+        type: 'laboratoire',
       });
       Alert.alert("Succès", "Demande de rendez-vous envoyée !");
     } catch (error) {
-      console.error('Erreur lors de la demande de rendez-vous', error);
-      Alert.alert("Erreur", "Impossible d'envoyer la demande.");
+      console.error('Erreur lors de la demande', error);
+      Alert.alert("Erreur", "Impossible d’envoyer la demande.");
     }
   };
 
-  if (!medecin) {
+  if (!labo) {
     return (
       <View style={styles.container}>
         <Text style={styles.loading}>Chargement...</Text>
@@ -55,14 +55,14 @@ const DoctorProfile = () => {
 
   return (
     <View style={styles.container}>
-      {medecin.photo && (
-        <Image source={{ uri: medecin.photo }} style={styles.photo} />
+      {labo.photo && (
+        <Image source={{ uri: labo.photo }} style={styles.photo} />
       )}
-      <Text style={styles.name}>{medecin.nom} {medecin.prenom}</Text>
-      <Text style={styles.specialty}>Spécialité : {medecin.specialite}</Text>
-      <Text style={styles.address}>Adresse : {medecin.adresse}</Text>
-      {medecin.note && (
-        <Text style={styles.rating}>Note : ⭐ {medecin.note.toFixed(1)}</Text>
+      <Text style={styles.name}>{labo.nom}</Text>
+      <Text style={styles.specialty}>Type : {labo.type}</Text>
+      <Text style={styles.address}>Adresse : {labo.adresse}</Text>
+      {labo.note && (
+        <Text style={styles.rating}>Note : ⭐ {labo.note.toFixed(1)}</Text>
       )}
       <TouchableOpacity style={styles.button} onPress={handleRequestAppointment}>
         <Text style={styles.buttonText}>📅 Demander un rendez-vous</Text>
@@ -124,4 +124,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default DoctorProfile;
+export default LaboProfile;
