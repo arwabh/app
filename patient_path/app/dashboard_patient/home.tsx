@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
 import { colors } from '../../theme';
 
 const API_BASE_URL = 'http://192.168.135.83:5001'; // ou ton IP locale exacte
+
 
 interface Appointment {
   _id: string;
@@ -23,43 +24,34 @@ const Home = () => {
   const [userName, setUserName] = useState('');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    const userId = localStorage.getItem('userId');
-    if (!userId) return;
+  const userId = '123456'; // à remplacer par l'ID réel depuis le contexte/auth
 
+  useEffect(() => {
     const fetchData = async () => {
       try {
         const profileRes = await axios.get(`${API_BASE_URL}/api/users/${userId}`);
         const userData = profileRes.data as { nom: string; prenom: string };
         setUserName(`${userData.prenom} ${userData.nom}`);
-
+  
         const appointmentRes = await axios.get(`${API_BASE_URL}/api/appointments?patientId=${userId}`);
         setAppointments(appointmentRes.data as Appointment[]);
-
+  
         const doctorRes = await axios.get(`${API_BASE_URL}/api/medecins-consultes/${userId}`);
         setDoctors(doctorRes.data as Doctor[]);
       } catch (err) {
-        console.error('❌ Erreur chargement dashboard:', err);
-      } finally {
-        setLoading(false);
+        console.error('Erreur chargement dashboard:', err);
       }
     };
-
+  
     fetchData();
   }, []);
-
-  if (loading) {
-    return <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />;
-  }
 
   return (
     <View style={styles.container}>
       <Text style={styles.welcome}>Bienvenue, {userName.split(' ')[0]}</Text>
 
-      {/* Rendez-vous */}
       <Text style={styles.sectionTitle}>📅 Prochains rendez-vous</Text>
       {appointments.length === 0 ? (
         <Text style={styles.empty}>Aucun rendez-vous à venir.</Text>
@@ -76,15 +68,13 @@ const Home = () => {
         />
       )}
 
-      {/* Médecins consultés */}
-      <Text style={styles.sectionTitle}>👨‍⚕️ Mes médecins consultés</Text>
+      <Text style={styles.sectionTitle}>👨‍⚕️ Médecins consultés</Text>
       {doctors.length === 0 ? (
-        <Text style={styles.empty}>Aucun médecin trouvé.</Text>
+        <Text style={styles.empty}>Aucun médecin consulté.</Text>
       ) : (
         <FlatList
-          data={doctors}
           horizontal
-          showsHorizontalScrollIndicator={false}
+          data={doctors}
           keyExtractor={(item) => item._id}
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -95,6 +85,7 @@ const Home = () => {
               <Text style={styles.cardSub}>{item.specialty}</Text>
             </TouchableOpacity>
           )}
+          showsHorizontalScrollIndicator={false}
         />
       )}
     </View>
