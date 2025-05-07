@@ -1,125 +1,196 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import axios from 'axios';
-import { useRouter } from 'expo-router';
-import { colors } from '../../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://localhost:8081'; // à adapter selon l'environnement
+interface Patient {
+  _id: string;
+  nom: string;
+  prenom: string;
+  email: string;
+  telephone: string;
+}
 
 interface Appointment {
   _id: string;
+  patient: Patient;
   date: string;
-  doctorName: string;
+  reason?: string;
+  status: string;
 }
 
 interface Doctor {
   _id: string;
   nom: string;
   prenom: string;
+  email: string;
+  telephone: string;
   specialty: string;
+  region: string;
 }
 
-const Home = () => {
-  const [userName, setUserName] = useState('');
+export default function DoctorHome() {
+  const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const router = useRouter();
-
-  const userId = '123456'; // à remplacer par l'ID réel depuis le contexte/auth
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const profileRes = await axios.get(`${API_BASE_URL}/api/users/${userId}`);
-        const userData = profileRes.data as { nom: string; prenom: string };
-        setUserName(`${userData.prenom} ${userData.nom}`);
-  
-        const appointmentRes = await axios.get(`${API_BASE_URL}/api/appointments?patientId=${userId}`);
-        setAppointments(appointmentRes.data as Appointment[]);
-  
-        const doctorRes = await axios.get(`${API_BASE_URL}/api/medecins-consultes/${userId}`);
-        setDoctors(doctorRes.data as Doctor[]);
+        const userId = await AsyncStorage.getItem('userId');
+        if (!userId) {
+          setError("ID utilisateur non trouvé");
+          return;
+        }
+
+        const [doctorRes, aptRes] = await Promise.all([
+          axios.get(`http://192.168.96.83:5001/api/users/${userId}`),
+          axios.get(`http://192.168.96.83:5001/api/doctor/appointments/${userId}`)
+        ]);
+
+        setDoctor(doctorRes.data);
+
+        const confirmed = aptRes.data.filter(
+          (apt: Appointment) => apt.status === 'confirmed'
+        );
+        setAppointments(confirmed);
       } catch (err) {
-        console.error('Erreur chargement dashboard:', err);
+        console.error("❌ Erreur:", err);
+        setError("Impossible de charger les données");
+      } finally {
+        setLoading(false);
       }
     };
-  
+
     fetchData();
   }, []);
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.welcome}>Bienvenue, {userName.split(' ')[0]}</Text>
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
-      <Text style={styles.sectionTitle}>📅 Prochains rendez-vous</Text>
-      {appointments.length === 0 ? (
-        <Text style={styles.empty}>Aucun rendez-vous à venir.</Text>
-      ) : (
-        <FlatList
-          data={appointments.slice(0, 3)}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardText}>👨‍⚕️ {item.doctorName}</Text>
-              <Text style={styles.cardSub}>🕒 {new Date(item.date).toLocaleString('fr-FR')}</Text>
-            </View>
-          )}
-        />
+  if (loading) {
+    return <ActivityIndicator size="large" color="#1976d2" style={styles.loader} />;
+  }
+
+  if (error) {
+    return <Text style={styles.error}>{error}</Text>;
+  }
+
+  return (
+    <ScrollView style={styles.container}>
+      <Text style={styles.header}>👨‍⚕️ Tableau de bord du Médecin</Text>
+
+      {doctor && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Dr. {doctor.prenom} {doctor.nom}</Text>
+          <Text style={styles.text}>🏥 Spécialité : {doctor.specialty}</Text>
+          <Text style={styles.text}>📍 Région : {doctor.region}</Text>
+          <Text style={styles.text}>📧 Email : {doctor.email}</Text>
+          <Text style={styles.text}>📞 Téléphone : {doctor.telephone}</Text>
+        </View>
       )}
 
-     //
-    </View>
+      <Text style={styles.subHeader}>📅 Rendez-vous Confirmés</Text>
+      {appointments.length === 0 ? (
+        <Text style={styles.noData}>Aucun rendez-vous confirmé</Text>
+      ) : (
+        appointments.map((apt) => (
+          <View key={apt._id} style={styles.appointmentCard}>
+            <Text style={styles.appointmentTitle}>
+              👤 Patient : {apt.patient.prenom} {apt.patient.nom}
+            </Text>
+            <Text style={styles.text}>📧 {apt.patient.email}</Text>
+            <Text style={styles.text}>📞 {apt.patient.telephone}</Text>
+            <Text style={styles.text}>🗓️ {formatDate(apt.date)}</Text>
+            {apt.reason && <Text style={styles.text}>📝 Motif : {apt.reason}</Text>}
+            <Text style={styles.status}>✅ Confirmé</Text>
+          </View>
+        ))
+      )}
+    </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.background,
     flex: 1,
-    padding: 20,
+    backgroundColor: '#f5f9fa',
+    padding: 16,
   },
-  welcome: {
-    fontSize: 24,
+  header: {
+    fontSize: 22,
     fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 20,
+    marginBottom: 16,
+    color: '#2c3e50',
   },
-  sectionTitle: {
-    fontSize: 18,
-    color: colors.accent,
-    marginTop: 10,
-    marginBottom: 8,
+  subHeader: {
+    fontSize: 20,
     fontWeight: '600',
-  },
-  empty: {
-    color: colors.muted,
-    fontStyle: 'italic',
-    marginBottom: 10,
+    marginTop: 24,
+    marginBottom: 12,
+    color: '#2c3e50',
   },
   card: {
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
   },
-  doctorCard: {
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginRight: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    marginBottom: 8,
   },
-  cardText: {
-    color: colors.text,
+  text: {
+    fontSize: 15,
+    marginBottom: 4,
+    color: '#34495e',
+  },
+  appointmentCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 5,
+    borderLeftColor: '#1976d2',
+  },
+  appointmentTitle: {
+    fontSize: 16,
     fontWeight: '600',
+    marginBottom: 6,
+    color: '#2c3e50',
   },
-  cardSub: {
-    color: colors.muted,
-    marginTop: 4,
+  status: {
+    marginTop: 6,
+    color: '#4caf50',
+    fontWeight: 'bold',
+  },
+  noData: {
+    color: '#777',
+    fontStyle: 'italic',
+    marginTop: 10,
+  },
+  loader: {
+    flex: 1,
+    marginTop: 100,
+  },
+  error: {
+    color: 'red',
+    padding: 20,
+    textAlign: 'center',
   },
 });
-
-export default Home;

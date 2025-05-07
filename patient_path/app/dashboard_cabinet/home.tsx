@@ -1,163 +1,282 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
-import axios from 'axios';
-import { colors } from '../../theme';
-import { useRouter } from 'expo-router';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Modal,
+  StyleSheet,
+} from 'react-native';
 
-const API_BASE_URL = 'http://localhost:5001';
+const API_BASE_URL = 'http://192.168.96.83';
 
-type Appointment = {
+interface Appointment {
   _id: string;
-  status: string;
   date: string;
+  status: string;
   reason?: string;
-  patient: {
+  patient?: {
     nom: string;
     prenom: string;
     email: string;
     telephone: string;
   };
-};
+}
 
 export default function CabinetDashboard() {
-  const router = useRouter();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]);
   const [cabinetInfo, setCabinetInfo] = useState<any>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [requiredDocuments, setRequiredDocuments] = useState('');
+  const [showPlanningForm, setShowPlanningForm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const cabinetId = 'YOUR_USER_ID'; // 🔁 à remplacer dynamiquement avec SecureStore ou AsyncStorage
+
   useEffect(() => {
-    const cabinetId = localStorage.getItem('userId');
-    if (cabinetId) {
-      fetchCabinetInfo(cabinetId);
-    }
+    fetchCabinetInfo();
   }, []);
 
-  const fetchCabinetInfo = async (cabinetId: string) => {
+  const fetchCabinetInfo = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/users/${cabinetId}`);
-      const data = res.data as { linkedDoctorId?: string; nom?: string; specialty?: string; adresse?: string };
+      const res = await fetch(`${API_BASE_URL}/api/users/${cabinetId}`);
+      const data = await res.json();
       setCabinetInfo(data);
-
       if (data.linkedDoctorId) {
         fetchAppointments(data.linkedDoctorId);
       } else {
-        setError("Aucun médecin lié à ce cabinet.");
+        setError('Aucun médecin lié à ce cabinet.');
         setLoading(false);
       }
     } catch (err) {
-      console.error("❌ Erreur info cabinet:", err);
-      setError("Erreur récupération des données.");
+      setError('Erreur lors de la récupération du cabinet.');
       setLoading(false);
     }
   };
 
   const fetchAppointments = async (doctorId: string) => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/doctor/appointments/${doctorId}`);
-      const data = res.data as Appointment[];
-      const confirmed = data.filter((apt) => apt.status === 'confirmed');
-      setAppointments(confirmed);
+      const res = await fetch(`${API_BASE_URL}/api/doctor/appointments/${doctorId}`);
+      const data = await res.json();
+      setAppointments(data.filter((a: Appointment) => a.status === 'confirmed'));
+      setPendingAppointments(data.filter((a: Appointment) => a.status === 'pending'));
+      setLoading(false);
     } catch (err) {
-      console.error('Erreur chargement rendez-vous:', err);
-      setError('Erreur chargement rendez-vous.');
-    } finally {
+      setError('Erreur lors de la récupération des rendez-vous.');
       setLoading(false);
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('fr-FR');
+  const handleStatusChange = async (id: string, status: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/appointments/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (cabinetInfo?.linkedDoctorId) fetchAppointments(cabinetInfo.linkedDoctorId);
+    } catch (err) {
+      setError('Erreur mise à jour statut.');
+    }
+  };
+
+  const handlePlanningSubmit = async () => {
+    if (!selectedAppointment) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/appointments/${selectedAppointment._id}/planning`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentDate,
+          requiredDocuments,
+          status: 'confirmed',
+        }),
+      });
+      setShowPlanningForm(false);
+      setSelectedAppointment(null);
+      setAppointmentDate('');
+      setRequiredDocuments('');
+      if (cabinetInfo?.linkedDoctorId) fetchAppointments(cabinetInfo.linkedDoctorId);
+    } catch (err) {
+      setError('Erreur planification rendez-vous.');
+    }
+  };
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   if (loading) {
-    return <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 50 }} />;
-  }
-
-  if (error) {
-    return <Text style={styles.error}>{error}</Text>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text>Chargement...</Text>
+      </View>
+    );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>👩‍⚕️ Tableau de bord du Cabinet</Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>👨‍⚕️ Tableau de bord du Cabinet</Text>
 
       {cabinetInfo && (
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>📍 {cabinetInfo.nom}</Text>
-          <Text style={styles.infoText}>🏥 Spécialité : {cabinetInfo.specialty}</Text>
-          <Text style={styles.infoText}>📌 Adresse : {cabinetInfo.adresse}</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>📍 {cabinetInfo.nom}</Text>
+          <Text>🏥 Spécialité : {cabinetInfo.specialty}</Text>
+          <Text>📌 Adresse : {cabinetInfo.adresse}</Text>
         </View>
       )}
 
-      <Text style={styles.subtitle}>📅 Rendez-vous confirmés</Text>
+      <Text style={styles.sectionTitle}>⏳ Demandes en attente</Text>
+      {pendingAppointments.length === 0 ? (
+        <Text style={styles.noData}>Aucune demande</Text>
+      ) : (
+        pendingAppointments.map((apt) => (
+          <View key={apt._id} style={styles.card}>
+            <Text style={styles.cardTitle}>
+              👤 {apt.patient?.prenom} {apt.patient?.nom}
+            </Text>
+            <Text>📅 {formatDate(apt.date)}</Text>
+            <Text>📧 {apt.patient?.email}</Text>
+            <Text>📞 {apt.patient?.telephone}</Text>
+            {apt.reason && <Text>📝 {apt.reason}</Text>}
+            <View style={styles.row}>
+              <TouchableOpacity
+                style={styles.confirmBtn}
+                onPress={() => {
+                  setSelectedAppointment(apt);
+                  setShowPlanningForm(true);
+                }}
+              >
+                <Text style={styles.btnText}>Planifier</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => handleStatusChange(apt._id, 'cancelled')}
+              >
+                <Text style={styles.btnText}>Refuser</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>📅 Rendez-vous Confirmés</Text>
       {appointments.length === 0 ? (
-        <Text>Aucun rendez-vous confirmé.</Text>
+        <Text style={styles.noData}>Aucun rendez-vous confirmé</Text>
       ) : (
         appointments.map((apt) => (
           <View key={apt._id} style={styles.card}>
             <Text style={styles.cardTitle}>
-              👤 {apt.patient.prenom} {apt.patient.nom}
+              👤 {apt.patient?.prenom} {apt.patient?.nom}
             </Text>
-            <Text>🗓️ {formatDate(apt.date)}</Text>
-            <Text>📧 {apt.patient.email}</Text>
-            <Text>📞 {apt.patient.telephone}</Text>
+            <Text>📅 {formatDate(apt.date)}</Text>
+            <Text>📧 {apt.patient?.email}</Text>
+            <Text>📞 {apt.patient?.telephone}</Text>
             {apt.reason && <Text>📝 {apt.reason}</Text>}
+            <Text style={styles.confirmed}>✅ Confirmé</Text>
           </View>
         ))
       )}
+
+      <Modal visible={showPlanningForm} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>📅 Planifier le rendez-vous</Text>
+            <TextInput
+              placeholder="Date et heure (AAAA-MM-JJTHH:mm)"
+              value={appointmentDate}
+              onChangeText={setAppointmentDate}
+              style={styles.input}
+            />
+            <TextInput
+              placeholder="Documents requis"
+              value={requiredDocuments}
+              onChangeText={setRequiredDocuments}
+              style={[styles.input, { height: 100 }]}
+              multiline
+            />
+            <View style={styles.row}>
+              <TouchableOpacity style={styles.confirmBtn} onPress={handlePlanningSubmit}>
+                <Text style={styles.btnText}>Confirmer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => {
+                  setShowPlanningForm(false);
+                  setSelectedAppointment(null);
+                }}
+              >
+                <Text style={styles.btnText}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.background,
-    padding: 16,
-    flex: 1,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginVertical: 12,
-    color: colors.primary,
-  },
-  infoBox: {
-    backgroundColor: colors.surface,
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  infoText: {
-    fontSize: 16,
-    color: colors.text,
-    marginBottom: 4,
-  },
+  container: { padding: 20, paddingBottom: 60 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', marginTop: 30, marginBottom: 10 },
+  noData: { color: '#666' },
   card: {
-    backgroundColor: colors.surface,
-    padding: 12,
+    backgroundColor: '#fff',
+    padding: 15,
     borderRadius: 10,
-    marginBottom: 12,
-    borderColor: colors.border,
+    marginBottom: 15,
+    elevation: 2,
+  },
+  cardTitle: { fontWeight: 'bold', marginBottom: 5 },
+  confirmed: { marginTop: 8, color: '#2e7d32', fontWeight: '600' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  confirmBtn: {
+    backgroundColor: '#4caf50',
+    padding: 10,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 5,
+  },
+  cancelBtn: {
+    backgroundColor: '#f44336',
+    padding: 10,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 5,
+  },
+  btnText: { color: '#fff', textAlign: 'center', fontWeight: '600' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    elevation: 4,
+  },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
+  input: {
     borderWidth: 1,
-  },
-  cardTitle: {
-    fontWeight: '600',
-    fontSize: 16,
-    marginBottom: 4,
-    color: colors.primary,
-  },
-  error: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: 40,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 15,
   },
 });

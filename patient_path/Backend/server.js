@@ -23,13 +23,17 @@ const AmbulanceReport = require('./models/AmbulanceReport');
 const Vehicle = require('./models/Vehicle');
 const Article = require('./models/Article');
 const Comment = require('./models/Comment');
+const MedicalReport = require('./models/MedicalReport'); // si pas encore fait
 
 // Configuration CORS
 
 app.get('/favicon.ico', (req, res) => res.status(204));
 
-app.use(cors());
-
+app.use(cors({
+    origin: '*', // Ou spécifie l'IP de ton mobile: http://192.168.xxx.xxx
+    credentials: true,
+  }));
+  
 // Enable pre-flight for all routes
 app.options('*', cors({
     origin: 'http://localhost:5173',
@@ -155,25 +159,9 @@ const storageArticles = new CloudinaryStorage({
   }
 });
 // Exemple de route Express
-app.get('/api/search', async (req, res) => {
-    const { query, specialite, ville } = req.query;
+
   
-    const filters = {
-      ...(query && {
-        $or: [
-          { nom: { $regex: query, $options: 'i' } },
-          { prenom: { $regex: query, $options: 'i' } },
-        ]
-      }),
-      ...(specialite && { specialite: { $regex: specialite, $options: 'i' } }),
-      ...(ville && { adresse: { $regex: ville, $options: 'i' } }),
-    };
-  
-    const medecins = await User.find({ role: 'medecin', ...filters, isValidated: true });
-    const labos = await User.find({ role: 'laboratoire', ...filters, isValidated: true });
-  
-    res.json([...medecins, ...labos]);
-  });
+      
   
 
 // Modifier la configuration multer pour utiliser Cloudinary
@@ -182,9 +170,9 @@ const uploadArticleImage = multer({ storage: storageArticles });
 // MongoDB Connection String
 const uri = "mongodb+srv://tesnim:Tesnim.123456789@cluster0.50qhu.mongodb.net/HealthApp?retryWrites=true&w=majority";
 
-mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => console.log('✅ Successfully connected to MongoDB Atlas!'))
-    .catch((error) => console.error('❌ Failed to connect to MongoDB:', error));
+mongoose.connect(uri)
+  .then(() => console.log('✅ Successfully connected to MongoDB Atlas!'))
+  .catch((error) => console.error('❌ Failed to connect to MongoDB:', error));
 
 // Models
 const userSchema = new mongoose.Schema({
@@ -198,53 +186,10 @@ const userSchema = new mongoose.Schema({
     password: { type: String, required: true },
     roles: [{ type: String, required: true }],
     profileCompleted: { type: Boolean, default: false },
-    isValidated: { type: Boolean, default: false },
-    // Patient info
-  patientInfo: {
-    emergencyPhone: String,
-    photoPath: String,
-    bloodType: String,
-    chronicDiseases: String,
-  },
-
-  // Medecin info
-  medecinInfo: {
-    specialite: String,
-    photoPath: String,
-    diplomePath: String,
-  },
-
-  // Cabinet info
-  cabinetInfo: {
-    adresseCabinet: String,
-    specialite: String,
-    medecinAssocie: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-  },
-
-  // Ambulancier info
-  ambulancierInfo: {
-    hopital: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-    diplomePath: String,
-    photoPath: String,
-  },
-
-  // Laboratoire info
-  laboratoireInfo: {
-    adresseLaboratoire: String,
-    carteAutorisationPath: String,
-  },
-
-  // hopital info
-  hopitalInfo: {
-    adresse: String,
-  },
-  
+    specialty: { type: String },
+    diploma: { type: String },
+    photo: { type: String },
+    linkedDoctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // ✅ ajouté ici  
     // 🔥 ➡️ AJOUTE ICI et BIEN fermer l'accolade !
     resetPasswordToken: { type: String },
     resetPasswordExpires: { type: Date }
@@ -301,6 +246,7 @@ app.post('/signup', async(req, res) => {
             cin,
             password: hashedPassword,
             roles: [roles]
+            
         });
 
         await newUser.save();
@@ -344,16 +290,47 @@ app.post('/login', async (req, res) => {
     }
   });
   
-  app.get('/api/users/:id', async (req, res) => {
+
+ 
+  
+  app.get('/api/patient/rapports/:patientId', async (req, res) => {
+    const { patientId } = req.params;
     try {
-      const user = await Patient.findById(req.params.id); // ou Doctor, selon le rôle
-      if (!user) return res.status(404).json({ message: 'Utilisateur introuvable' });
-      res.json(user);
-    } catch (error) {
-      console.error('Erreur utilisateur:', error);
+      const rapports = await db.collection('medicalreports')
+        .find({ patientId: new mongoose.Types.ObjectId(patientId) })
+        .sort({ createdAt: -1 })
+        .toArray();
+  
+      const formatted = rapports.map(r => ({
+        _id: r._id,
+        nomMedecin: r.doctorId?.toString(), // ou faire un `populate` si tu veux le nom complet
+        date: r.createdAt,
+        contenu: r.description,
+        fileUrl: r.fileUrl
+      }));
+  
+      res.json(formatted);
+    } catch (err) {
+      console.error("❌ Erreur récupération rapports:", err);
       res.status(500).json({ message: 'Erreur serveur' });
     }
   });
+  
+  app.get('/api/users/:id', async (req, res) => {
+    try {
+      const user = await mongoose.connection.db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(req.params.id) });
+  
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+  
+      res.status(200).json(user);
+    } catch (err) {
+      console.error("Erreur dans GET /api/users/:id :", err);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+  
   app.get('/api/patient/appointments/:id', async (req, res) => {
     try {
       const appointments = await Appointment.find({ patientId: req.params.id })
@@ -364,17 +341,52 @@ app.post('/login', async (req, res) => {
       res.status(500).json({ message: 'Erreur serveur' });
     }
   });
-  app.get('/api/patient/doctors/:id', async (req, res) => {
+  app.get('/api/patient/profile/:id', async (req, res) => {
+    const { id } = req.params;
+  
     try {
-      const appointments = await Appointment.find({ patientId: req.params.id });
-      const doctorIds = [...new Set(appointments.map(app => app.doctorId))];
-      const doctors = await Doctor.find({ _id: { $in: doctorIds } });
-      res.json(doctors);
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'ID invalide' });
+      }
+  
+      const user = await mongoose.model('User').findById(id).select('-password -resetPasswordToken -resetPasswordExpires');
+  
+      if (!user) {
+        return res.status(404).json({ message: 'Utilisateur non trouvé' });
+      }
+  
+      if (!user.roles.includes('patient')) {
+        return res.status(403).json({ message: 'Ce compte n’est pas un patient.' });
+      }
+  
+      res.status(200).json(user);
     } catch (error) {
-      console.error('Erreur médecins:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      console.error('❌ Erreur serveur récupération profil patient :', error);
+      res.status(500).json({ message: 'Erreur serveur', error: error.message });
     }
   });
+  
+  
+  app.get('/api/patient/doctors/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Exemple basique : récupérer tous les rendez-vous confirmés du patient
+    const appointments = await Appointment.find({ patientId: id, status: 'confirmé' });
+
+    const doctorIds = appointments.map(a => a.doctorId).filter(Boolean);
+
+    const uniqueDoctorIds = [...new Set(doctorIds)];
+
+    const doctors = await User.find({ _id: { $in: uniqueDoctorIds }, role: 'medecin' });
+
+    res.json(doctors);
+  } catch (error) {
+    console.error('❌ Erreur dans GET /api/patient/doctors/:id', error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
   app.get('/api/articles', async (req, res) => {
     try {
       const articles = await Article.find().sort({ createdAt: -1 });
@@ -387,14 +399,40 @@ app.post('/login', async (req, res) => {
   
   app.get('/api/search', async (req, res) => {
     try {
-      const users = await User.find({ isValidated: true }).limit(10);
-      console.log('Résultats trouvés :', users.length);
+      const { query = '', specialite = '', ville = '', categorie = '' } = req.query;
+  
+      const filter = {
+        profileCompleted: true,
+      };
+  
+      if (query) {
+        filter.$or = [
+          { nom: new RegExp(query, 'i') },
+          { prenom: new RegExp(query, 'i') },
+        ];
+      }
+  
+      if (ville) {
+        filter.adresse = new RegExp(ville, 'i');
+      }
+  
+      if (categorie) {
+        filter.roles = { $in: [categorie] };
+      }
+  
+      // Appliquer le filtre de spécialité uniquement si la catégorie est médecin
+      if (categorie === 'medecin' && specialite) {
+        filter.specialty = new RegExp(specialite, 'i');
+      }
+  
+      const users = await User.find(filter).select('nom prenom adresse specialty photo roles');
       res.json(users);
     } catch (err) {
-      console.error('Erreur recherche backend :', err);
-      res.status(500).json({ error: 'Erreur serveur' });
+      console.error('Erreur de recherche :', err);
+      res.status(500).json({ message: 'Erreur serveur lors de la recherche' });
     }
   });
+  
   
   
   
@@ -490,6 +528,61 @@ app.get('/api/doctors-for-labs', async (req, res) => {
       res.status(500).json({ message: 'Erreur serveur.' });
     }
   });
+  // 🔧 Récupérer un médecin par ID
+app.get('/api/medecins/:id', async (req, res) => {
+    try {
+      const medecin = await User.findById(req.params.id);
+      if (!medecin || medecin.roles[0] !== 'medecin') {
+        return res.status(404).json({ message: "Médecin introuvable" });
+      }
+      res.json({
+        _id: medecin._id,
+        nom: medecin.nom,
+        prenom: medecin.prenom,
+        specialite: medecin.specialite,
+        adresse: medecin.adresse
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur", error });
+    }
+  });
+  
+  // Récupérer un laboratoire par ID
+app.get('/api/laboratoires/:id', async (req, res) => {
+    try {
+      const labo = await User.findById(req.params.id);
+      if (!labo || labo.roles[0] !== 'laboratoire') {
+        return res.status(404).json({ message: "Laboratoire introuvable" });
+      }
+      res.json({
+        _id: labo._id,
+        nom: labo.nom,
+        prenom: labo.prenom,
+        adresse: labo.adresse
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur", error });
+    }
+  });
+  
+  // Récupérer un hôpital par ID
+  app.get('/api/hopitaux/:id', async (req, res) => {
+    try {
+      const hopital = await User.findById(req.params.id);
+      if (!hopital || hopital.roles[0] !== 'hopitale') {
+        return res.status(404).json({ message: "Hôpital introuvable" });
+      }
+      res.json({
+        _id: hopital._id,
+        nom: hopital.nom,
+        adresse: hopital.adresse
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur", error });
+    }
+  });
+  
+  
   app.get('/api/medecins/by-specialite/:specialite', async (req, res) => {
     try {
       const medecins = await User.find({
@@ -954,19 +1047,9 @@ app.post('/create-admin', async(req, res) => {
 });
 
 // ✅ Route pour récupérer les données d'un utilisateur spécifique par ID
-app.get('/api/users/:id', async(req, res) => {
-    const { id } = req.params;
+// 📌 Route pour récupérer les infos d'un utilisateur par son ID
 
-    try {
-        const user = await User.findById(id).select('-password'); // ne renvoie pas le mot de passe pour sécurité
-        if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
-
-        res.status(200).json(user);
-    } catch (error) {
-        console.error('❌ Erreur récupération utilisateur:', error);
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
+  
 
 // Créer un nouvel article
 app.post('/api/articles', uploadArticleImage.single('image'), async (req, res) => {
@@ -1285,7 +1368,29 @@ app.post('/api/appointments', async(req, res) => {
         res.status(500).json({ message: "Erreur serveur lors de la création du rendez-vous." });
     }
 });
-
+app.get('/api/patient/analyses/:patientId', async (req, res) => {
+    const { patientId } = req.params;
+    try {
+      const results = await db.collection('labresults')
+        .find({ patientId: new mongoose.Types.ObjectId(patientId) })
+        .sort({ createdAt: -1 })
+        .toArray();
+  
+      const formatted = results.map(a => ({
+        _id: a._id,
+        laboratoire: a.labId?.toString(), // ou `populate` si besoin du nom
+        date: a.date || a.createdAt,
+        resultat: a.description || a.results || '',
+        fileUrl: a.fileUrl
+      }));
+  
+      res.json(formatted);
+    } catch (err) {
+      console.error("❌ Erreur récupération analyses:", err);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
+  
 // Route pour télécharger un document médical
 app.post('/api/patient/medical-documents/:userId', uploadMedicalDoc.single('document'), async (req, res) => {
     try {
@@ -1374,32 +1479,117 @@ app.delete('/api/patient/medical-documents/:userId/:documentId', async (req, res
 });
 
 // Envoyer un message (patient -> médecin ou médecin -> patient)
-app.post('/api/messages', async (req, res) => {
-  try {
-    const { senderId, receiverId, appointmentId, content } = req.body;
-    if (!senderId || !receiverId || !appointmentId || !content) {
-      return res.status(400).json({ message: 'Champs manquants.' });
+
+
+app.get('/api/messages/conversations/:userId', async (req, res) => {
+    const { userId } = req.params;
+  
+    try {
+      // 1. Récupérer tous les messages (envoyés ou reçus) liés à ce patient
+      const messages = await Message.find({
+        $or: [{ senderId: userId }, { receiverId: userId }],
+        appointmentId: { $ne: null }
+      }).sort({ createdAt: -1 });
+  
+      // 2. Récupérer les rendez-vous confirmés
+      const appointmentIds = [...new Set(messages.map(m => m.appointmentId.toString()))];
+      const confirmedAppointments = await Appointment.find({
+        _id: { $in: appointmentIds },
+        status: 'confirmed'
+      });
+  
+      const confirmedSet = new Set(confirmedAppointments.map(a => a._id.toString()));
+  
+      // 3. Garder un seul message par rendez-vous confirmé
+      const latestMessagesMap = new Map(); // appointmentId => message
+      for (const msg of messages) {
+        const aptId = msg.appointmentId.toString();
+        if (confirmedSet.has(aptId) && !latestMessagesMap.has(aptId)) {
+          latestMessagesMap.set(aptId, msg);
+        }
+      }
+  
+      // 4. Trouver les IDs des autres utilisateurs dans les messages
+      const otherUserIds = Array.from(latestMessagesMap.values()).map(msg =>
+        msg.senderId.toString() === userId ? msg.receiverId.toString() : msg.senderId.toString()
+      );
+  
+      // 5. Récupérer les données des utilisateurs (depuis le modèle User déjà dans server.js)
+      const users = await User.find({ _id: { $in: otherUserIds } });
+  
+      // 6. Formater les résultats
+      const conversations = Array.from(latestMessagesMap.values()).map(msg => {
+        const otherUserId = msg.senderId.toString() === userId ? msg.receiverId.toString() : msg.senderId.toString();
+        const otherUser = users.find(u => u._id.toString() === otherUserId);
+  
+        return {
+          _id: msg._id,
+          appointmentId: msg.appointmentId,
+          otherUserId,
+          otherUserName: otherUser ? `${otherUser.nom} ${otherUser.prenom}` : 'Utilisateur inconnu',
+          otherUserRole: otherUser?.roles?.[0] || 'unknown',
+          lastMessage: msg.content, // ✅ champ correct du modèle Message
+          lastMessageAt: msg.createdAt
+        };
+      });
+  
+      res.json(conversations);
+    } catch (err) {
+      console.error('Erreur route conversations:', err);
+      res.status(500).json({ message: 'Erreur serveur' });
     }
-    const message = new Message({ senderId, receiverId, appointmentId, content });
-    await message.save();
-    res.status(201).json({ message: 'Message envoyé.', data: message });
-  } catch (error) {
-    console.error('❌ Erreur envoi message:', error);
-    res.status(500).json({ message: 'Erreur serveur.' });
-  }
-});
+  });
+  
 
 // Récupérer les messages pour un rendez-vous donné (patient et médecin)
 app.get('/api/messages/:appointmentId', async (req, res) => {
-  try {
-    const { appointmentId } = req.params;
-    const messages = await Message.find({ appointmentId }).sort({ sentAt: 1 });
-    res.status(200).json(messages);
-  } catch (error) {
-    console.error('❌ Erreur récupération messages:', error);
-    res.status(500).json({ message: 'Erreur serveur.' });
-  }
-});
+    try {
+      const { appointmentId } = req.params;
+  
+      // 🔎 On récupère tous les messages liés à ce rendez-vous, triés du plus ancien au plus récent
+      const messages = await Message.find({ appointmentId }).sort({ createdAt: 1 });
+  
+      res.status(200).json(messages);
+    } catch (error) {
+      console.error('❌ Erreur récupération messages:', error);
+      res.status(500).json({ message: 'Erreur serveur.' });
+    }
+  });
+  
+app.post('/api/messages', async (req, res) => {
+    const { senderId, receiverId, appointmentId, content } = req.body;
+  
+    // 1. Vérification des champs requis
+    if (!senderId || !receiverId || !appointmentId || !content?.trim()) {
+      return res.status(400).json({ message: 'Champs requis manquants ou invalides.' });
+    }
+  
+    try {
+      // 2. Vérifie si l’appointment existe et est confirmé
+      const appointment = await Appointment.findById(appointmentId);
+      if (!appointment) {
+        return res.status(404).json({ message: "Rendez-vous introuvable." });
+      }
+  
+      if (appointment.status !== 'confirmed') {
+        return res.status(403).json({ message: "Le rendez-vous n'est pas encore confirmé." });
+      }
+  
+      // 3. Création et sauvegarde du message
+      const newMessage = new Message({
+        senderId,
+        receiverId,
+        appointmentId,
+        content
+      });
+  
+      await newMessage.save();
+      res.status(201).json({ message: 'Message envoyé avec succès.' });
+    } catch (err) {
+      console.error('Erreur création message :', err);
+      res.status(500).json({ message: 'Erreur serveur lors de l’envoi du message.' });
+    }
+  });
 
 // Récupérer les rendez-vous d'un patient
 app.get('/api/appointments', async (req, res) => {

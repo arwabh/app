@@ -1,170 +1,169 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-
-const API_BASE = 'http://192.168.135.83:5001';
+const API_BASE_URL = 'http://192.168.96.83:5001';
 
 interface Appointment {
-    type: string;
-    nomMedecin?: string;
-    nomLabo?: string;
-    date: string;
-  }
-  
-  interface Doctor {
-    _id: string;
-    nom: string;
-    prenom: string;
-    specialite: string;
-  }
-  
-  interface Article {
-    titre: string;
-    auteur: string;
-  }
-  
-export default function Home() {
+  doctorId: string;
+  date: string;
+  status: string;
+}
+
+interface UserInfo {
+  _id: string;
+  nom: string;
+  prenom: string;
+  adresse: string;
+  photo?: string;
+  roles: string[] | string;
+}
+
+export default function HomeScreen() {
+  const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([]);
+  const [userInfos, setUserInfos] = useState<Record<string, UserInfo>>({});
+  const [confirmedProviders, setConfirmedProviders] = useState<UserInfo[]>([]);
   const router = useRouter();
-  const [userName, setUserName] = useState('');
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-const [doctors, setDoctors] = useState<Doctor[]>([]);
-const [articles, setArticles] = useState<Article[]>([]);
+  const userId = '6810978472b19ca6b13aafde'; // à rendre dynamique
 
+  useEffect(() => {
+    const fetchAppointments = async () => {
+      try {
+        const today = new Date();
+        const res = await axios.get(`${API_BASE_URL}/api/patient/appointments/${userId}`);
+        const futureAppointments = res.data.filter((a: Appointment) => new Date(a.date) >= today);
+        setUpcomingAppointments(futureAppointments.slice(0, 3));
 
-useEffect(() => {
-  const loadData = async () => {
-    const userId = localStorage.getItem('userId');
-    fetchUser(userId);
-    fetchAppointments(userId);
-    fetchDoctors(userId);
-    fetchArticles();
+        const confirmed = res.data.filter((a: Appointment) => a.status === 'confirmed');
+
+        const uniqueIds: string[] = Array.from(
+          new Set(confirmed.map((a: Appointment) => a.doctorId))
+        );
+
+        const userMap: Record<string, UserInfo> = {};
+
+        await Promise.all(
+          uniqueIds.map(async (id: string) => {
+            try {
+              const response = await axios.get(`${API_BASE_URL}/api/users/${id}`);
+              userMap[id] = response.data;
+            } catch (err) {
+              console.warn(`Utilisateur non trouvé: ${id}`);
+            }
+          })
+        );
+
+        setUserInfos(userMap);
+        setConfirmedProviders(Object.values(userMap));
+      } catch (err) {
+        console.error('Erreur lors du chargement des rendez-vous :', err);
+      }
+    };
+
+    fetchAppointments();
+  }, []);
+
+  const normalizeRoles = (roles: string[] | string): string[] => {
+    if (Array.isArray(roles)) return roles;
+    if (typeof roles === 'string') return [roles];
+    return [];
   };
-  loadData();
-}, []);
 
-  const fetchUser = async (id: string | null) => {
-    if (!id) return;
-    try {
-      const res = await axios.get(`${API_BASE}/api/users/${id}`);
-      setUserName(res.data.nom);
-    } catch (err) {
-      console.error('Erreur récupération utilisateur', err);
-    }
+  const mapRoleLabel = (roles: string[]) => {
+    const lower = roles.map(r => r.toLowerCase());
+
+    if (lower.includes('doctor')) return { icon: '🩺', label: 'Médecin', prefix: 'Dr.' };
+    if (lower.includes('labs')) return { icon: '🧪', label: 'Laboratoire', prefix: 'Laboratoire de :' };
+    if (lower.includes('hospital')) return { icon: '🏥', label: 'Hôpital', prefix: 'HÔPITAL' };
+    if (lower.includes('cabinet')) return { icon: '🏛️', label: 'Cabinet', prefix: 'Cabinet :' };
+    if (lower.includes('ambulancier')) return { icon: '🚑', label: 'Ambulancier', prefix: 'Ambulancier :' };
+
+    return { icon: '👤', label: 'Autre', prefix: '' };
   };
 
-  const fetchAppointments = async (id: string | null) => {
-    try {
-      const res = await axios.get(`${API_BASE}/api/patient/appointments/${id}`);
-      setAppointments(res.data.slice(0, 3)); // max 3
-    } catch (err) {
-      console.error('Erreur rendez-vous', err);
-    }
+  const renderLabel = (provider: UserInfo) => {
+    const roles = normalizeRoles(provider.roles);
+    const roleData = mapRoleLabel(roles);
+
+    if (roleData.prefix === 'Dr.') return `Dr. ${provider.nom} ${provider.prenom}`;
+    if (roleData.prefix === 'HÔPITAL') return 'HÔPITAL';
+    return `${roleData.prefix} ${provider.nom} ${provider.prenom}`;
   };
 
-  const fetchDoctors = async (id: string | null) => {
-    try {
-      const res = await axios.get(`${API_BASE}/api/patient/doctors/${id}`);
-      setDoctors(res.data.slice(0, 3));
-    } catch (err) {
-      console.error('Erreur médecins', err);
-    }
-  };
-
-  const fetchArticles = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/api/articles`);
-      setArticles(res.data.slice(0, 3));
-    } catch (err) {
-      console.error('Erreur articles', err);
-    }
+  const renderRole = (provider: UserInfo) => {
+    const roles = normalizeRoles(provider.roles);
+    const roleData = mapRoleLabel(roles);
+    return `${roleData.icon} ${roleData.label}`;
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.welcome}>Bienvenue, {userName} 👋</Text>
+    <ScrollView contentContainerStyle={{ padding: 20 }}>
+      <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#009688', marginBottom: 10 }}>
+        📅 Prochains rendez-vous
+      </Text>
 
-      <Text style={styles.sectionTitle}>📅 Prochains rendez-vous</Text>
-      {appointments.length === 0 ? (
-        <Text style={styles.empty}>Aucun rendez-vous prévu</Text>
-      ) : (
-        appointments.map((item, index) => (
-          <View key={index} style={styles.card}>
-            <Text style={styles.cardTitle}>{item.type} avec {item.nomMedecin || item.nomLabo}</Text>
-            <Text style={styles.cardSubtitle}>{new Date(item.date).toLocaleDateString()}</Text>
+      {upcomingAppointments.map((appointment, index) => {
+        const provider = userInfos[appointment.doctorId];
+        if (!provider) return null;
+
+        const date = new Date(appointment.date).toLocaleDateString('fr-FR');
+        const label = renderLabel(provider);
+        const role = renderRole(provider);
+
+        return (
+          <View key={index} style={{
+            backgroundColor: '#e7fdfc',
+            padding: 12,
+            borderRadius: 12,
+            marginBottom: 10,
+            borderLeftColor: '#03C490',
+            borderLeftWidth: 4
+          }}>
+            <Text style={{ fontWeight: 'bold', color: '#006666', fontSize: 15 }}>
+              {label}
+            </Text>
+            <Text style={{ color: '#444', marginTop: 4 }}>
+              📍 {provider.adresse}
+            </Text>
+            <Text style={{ color: '#444', marginTop: 2 }}>
+              📅 Date : {date}
+            </Text>
+            <Text style={{ color: '#888', marginTop: 2, fontStyle: 'italic' }}>
+              {role}
+            </Text>
           </View>
-        ))
-      )}
+        );
+      })}
 
-      <Text style={styles.sectionTitle}>🩺 Mes médecins</Text>
-      {doctors.length === 0 ? (
-        <Text style={styles.empty}>Aucun médecin encore consulté</Text>
-      ) : (
-        doctors.map((doc, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.card}
-            onPress={() => router.push(`/dashboard_patient/DoctorProfile?id=${doc._id}`)}
-          >
-            <Text style={styles.cardTitle}>{doc.nom} {doc.prenom}</Text>
-            <Text style={styles.cardSubtitle}>{doc.specialite}</Text>
-          </TouchableOpacity>
-        ))
-      )}
+      <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#009688', marginTop: 30 }}>
+        👩‍⚕️ Mes professionnels
+      </Text>
 
-      <Text style={styles.sectionTitle}>📰 Articles récents</Text>
-      {articles.length === 0 ? (
-        <Text style={styles.empty}>Aucun article disponible</Text>
-      ) : (
-        articles.map((article, index) => (
-          <View key={index} style={styles.card}>
-            <Text style={styles.cardTitle}>{article.titre}</Text>
-            <Text style={styles.cardSubtitle}>Dr. {article.auteur}</Text>
-          </View>
-        ))
-      )}
+      {confirmedProviders.map((provider, idx) => (
+        <TouchableOpacity
+          key={idx}
+          style={{
+            backgroundColor: '#eefaf1',
+            padding: 12,
+            borderRadius: 12,
+            marginTop: 10,
+            borderLeftColor: '#4caf50',
+            borderLeftWidth: 4
+          }}
+          onPress={() => router.push(`/dashboard_patient/unifiedProfile?id=${provider._id}`)}
+        >
+          <Text style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: 15 }}>
+            {renderLabel(provider)}
+          </Text>
+          <Text style={{ color: '#444', marginTop: 4 }}>
+            📍 {provider.adresse}
+          </Text>
+          <Text style={{ color: '#888', marginTop: 2, fontStyle: 'italic' }}>
+            {renderRole(provider)}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: '#f7fdfc',
-  },
-  welcome: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#03C490',
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
-    color: '#038A91',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 10,
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: '#555',
-  },
-  empty: {
-    color: '#999',
-    fontStyle: 'italic',
-    marginBottom: 10,
-  },
-});

@@ -1,172 +1,132 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, TextInput, Button, FlatList, Text, TouchableOpacity, Image } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as AV from 'expo-av';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet
+} from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 
-interface Message {
-  _id: string;
-  sender: string;
+const API_BASE_URL = 'http://192.168.96.83:5001';
+
+type Message = {
+  _id?: string;
+  senderId: string;
+  receiverId: string;
+  appointmentId: string;
   content: string;
-  type: 'text' | 'image' | 'audio' | 'file';
-  createdAt: string;
-}
+  createdAt?: string;
+};
 
 const ChatScreen = () => {
+  const { appointmentId, receiverId, receiverName, bot } = useLocalSearchParams();
+  const userId = localStorage.getItem('userId');
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [recording, setRecording] = useState<AV.Audio.Recording | null>(null);
-  const flatListRef = useRef<FlatList>(null);
+  const scrollViewRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
-    fetchMessages();
-  }, []);
+    if (bot === 'true') {
+      // Message fictif pour le chatbot
+      setMessages([
+        {
+          senderId: 'bot',
+          receiverId: userId || '',
+          appointmentId: 'chatbot',
+          content: 'Bonjour 👋 Je suis votre assistant médical. Décrivez-moi vos symptômes.',
+        }
+      ]);
+    } else {
+      fetchMessages();
+    }
+  }, [appointmentId]);
 
   const fetchMessages = async () => {
     try {
-      const res = await axios.get('http://192.168.135.83:5001/api/messages');
-      setMessages(res.data);
+      const res = await axios.get<Message[]>(
+        `${API_BASE_URL}/api/messages/${appointmentId}?userId=${userId}`
+      );
+      const sorted = res.data.sort((a, b) =>
+        new Date(a.createdAt || '').getTime() - new Date(b.createdAt || '').getTime()
+      );
+      setMessages(sorted);
     } catch (error) {
-      console.error('Erreur de chargement des messages', error);
+      console.error('Erreur chargement messages', error);
     }
   };
 
-  const sendTextMessage = async () => {
+  const handleSend = async () => {
     if (!newMessage.trim()) return;
-    try {
-      const res = await axios.post('http://192.168.135.83:5001/api/messages', {
-        content: newMessage,
-        type: 'text',
-        sender: 'patient',
-      });
-      setMessages((prev) => [...prev, res.data]);
+
+    if (bot === 'true') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          senderId: userId || '',
+          receiverId: 'bot',
+          appointmentId: 'chatbot',
+          content: newMessage
+        },
+        {
+          senderId: 'bot',
+          receiverId: userId || '',
+          appointmentId: 'chatbot',
+          content: 'Merci, je vais analyser cela...'
+        }
+      ]);
       setNewMessage('');
-    } catch (error) {
-      console.error('Erreur d’envoi', error);
-    }
-  };
-
-  const sendMedia = async (uri: string, fileName: string, mimeType: string, type: Message['type']) => {
-    const formData = new FormData();
-    formData.append('file', {
-      uri,
-      name: fileName,
-      type: mimeType,
-    } as any);
-    formData.append('type', type);
-    formData.append('sender', 'patient');
-
-    try {
-      const res = await axios.post('http://192.168.135.83:5001/api/messages/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setMessages((prev) => [...prev, res.data]);
-    } catch (error) {
-      console.error('Erreur d’envoi de média', error);
-    }
-  };
-
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      const image = result.assets[0];
-      sendMedia(image.uri, image.fileName || 'photo.jpg', image.type || 'image/jpeg', 'image');
-    }
-  };
-
-  const pickDocument = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: '*/*',
-      copyToCacheDirectory: true,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-        const doc = result.assets[0];
-        sendMedia(doc.uri, doc.name || 'document.pdf', doc.mimeType || 'application/pdf', 'file');
+    } else {
+      try {
+        await axios.post(`${API_BASE_URL}/api/messages`, {
+          senderId: userId,
+          receiverId,
+          appointmentId,
+          content: newMessage
+        });
+        setNewMessage('');
+        fetchMessages();
+      } catch (error) {
+        console.error('Erreur envoi message', error);
       }
-      
-  };
-
-  const startRecording = async () => {
-    try {
-      await AV.Audio.requestPermissionsAsync();
-      await AV.Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await AV.Audio.Recording.createAsync(AV.Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
-    } catch (err) {
-      console.error('Erreur démarrage enregistrement:', err);
-    }
-  };
-
-  const stopRecording = async () => {
-    if (!recording) return;
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      if (uri) {
-        sendMedia(uri, 'audio.m4a', 'audio/m4a', 'audio');
-      }
-      setRecording(null);
-    } catch (err) {
-      console.error('Erreur arrêt enregistrement:', err);
     }
   };
 
   return (
-    <View style={{ flex: 1, padding: 10 }}>
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <View style={{ marginVertical: 4 }}>
-            <Text style={{ fontWeight: 'bold' }}>{item.sender}</Text>
-            {item.type === 'text' && <Text>{item.content}</Text>}
-            {item.type === 'image' && (
-              <Image source={{ uri: item.content }} style={{ width: 200, height: 200 }} />
-            )}
-            {item.type === 'audio' && (
-              <Text style={{ color: 'blue' }}>🎤 Audio: {item.content}</Text>
-            )}
-            {item.type === 'file' && (
-              <Text style={{ color: 'green' }}>📄 Fichier: {item.content}</Text>
-            )}
+    <View style={styles.container}>
+      <Text style={styles.header}>
+        {bot === 'true' ? '🤖 Chatbot Médical' : `💬 ${receiverName}`}
+      </Text>
+
+      <ScrollView
+        style={styles.messages}
+        ref={scrollViewRef}
+        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+      >
+        {messages.map((msg, index) => (
+          <View
+            key={index}
+            style={[
+              styles.messageBubble,
+              msg.senderId === userId ? styles.myMessage : styles.otherMessage,
+            ]}
+          >
+            <Text style={styles.messageText}>{msg.content}</Text>
           </View>
-        )}
-      />
+        ))}
+      </ScrollView>
 
-      <TextInput
-        placeholder="Écrire un message..."
-        value={newMessage}
-        onChangeText={setNewMessage}
-        style={{
-          borderWidth: 1,
-          borderColor: '#ccc',
-          borderRadius: 8,
-          padding: 8,
-          marginBottom: 8,
-        }}
-      />
-      <Button title="Envoyer" onPress={sendTextMessage} />
-
-      <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10 }}>
-        <TouchableOpacity onPress={pickImage}>
-          <Text>🖼 Image</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={pickDocument}>
-          <Text>📎 Document</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={recording ? stopRecording : startRecording}>
-          <Text>{recording ? '⏹ Stop' : '🎤 Audio'}</Text>
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.input}
+          value={newMessage}
+          onChangeText={setNewMessage}
+          placeholder="Votre message..."
+        />
+        <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
+          <Text style={styles.sendText}>Envoyer</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -174,3 +134,56 @@ const ChatScreen = () => {
 };
 
 export default ChatScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
+  header: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#038A91'
+  },
+  messages: { flex: 1 },
+  messageBubble: {
+    padding: 10,
+    borderRadius: 12,
+    marginVertical: 4,
+    maxWidth: '75%',
+  },
+  myMessage: {
+    backgroundColor: '#DCF8C5',
+    alignSelf: 'flex-end',
+  },
+  otherMessage: {
+    backgroundColor: '#E5E5E5',
+    alignSelf: 'flex-start',
+  },
+  messageText: { fontSize: 16 },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderColor: '#ddd',
+    paddingTop: 8,
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    marginRight: 10,
+  },
+  sendButton: {
+    backgroundColor: '#03C490',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  sendText: {
+    color: '#fff',
+    fontWeight: 'bold'
+  }
+});

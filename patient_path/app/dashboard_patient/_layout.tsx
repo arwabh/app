@@ -10,7 +10,7 @@ export default function PatientLayout() {
       <Drawer.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Drawer.Screen name="chat" options={{ title: 'Chat' }} />
       <Drawer.Screen name="profile" options={{ title: 'Profil' }} />
-      <Drawer.Screen name="logout" options={{ title: 'Déconnexion' }} />
+      <Drawer.Screen name="Logout" options={{ title: 'Déconnexion' }} />
     </Drawer>
   );
 }

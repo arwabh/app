@@ -1,125 +1,247 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, Button, FlatList, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import axios from 'axios';
-import { useRouter } from 'expo-router';
-import { colors } from '../../theme';
 
-const API_BASE_URL = 'http://localhost:8081'; // à adapter selon l'environnement
+const API_BASE_URL = 'http://192.168.96.83';
 
-interface Appointment {
-  _id: string;
-  date: string;
-  doctorName: string;
-}
+type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled';
 
-interface Doctor {
-  _id: string;
+interface Patient {
   nom: string;
   prenom: string;
-  specialty: string;
+  email: string;
+  telephone: string;
 }
 
-const Home = () => {
-  const [userName, setUserName] = useState('');
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const router = useRouter();
+interface HospitalAppointment {
+  _id: string;
+  status: AppointmentStatus;
+  specialty: string;
+  createdAt: string;
+  appointmentDate?: string;
+  requiredDocuments?: string;
+  patientId: Patient;
+}
 
-  const userId = '123456'; // à remplacer par l'ID réel depuis le contexte/auth
+const HospitalDashboard = () => {
+  const [appointments, setAppointments] = useState<HospitalAppointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [activeFilter, setActiveFilter] = useState<AppointmentStatus | 'all'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedAppointment, setSelectedAppointment] = useState<HospitalAppointment | null>(null);
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [requiredDocuments, setRequiredDocuments] = useState('');
+  const [showPlanningForm, setShowPlanningForm] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const profileRes = await axios.get(`${API_BASE_URL}/api/users/${userId}`);
-        const userData = profileRes.data as { nom: string; prenom: string };
-        setUserName(`${userData.prenom} ${userData.nom}`);
-  
-        const appointmentRes = await axios.get(`${API_BASE_URL}/api/appointments?patientId=${userId}`);
-        setAppointments(appointmentRes.data as Appointment[]);
-  
-        const doctorRes = await axios.get(`${API_BASE_URL}/api/medecins-consultes/${userId}`);
-        setDoctors(doctorRes.data as Doctor[]);
-      } catch (err) {
-        console.error('Erreur chargement dashboard:', err);
-      }
-    };
-  
-    fetchData();
+    const hospitalId = localStorage.getItem('userId');
+    if (hospitalId) {
+      fetchAppointments(hospitalId);
+    }
   }, []);
+
+  const fetchAppointments = async (hospitalId: string) => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_BASE_URL}/api/hospital-appointments/hospital/${hospitalId}`);
+      setAppointments(response.data);
+    } catch (error) {
+      console.error('Erreur de récupération:', error);
+      setMessage("Erreur lors de la récupération des rendez-vous.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (appointmentId: string, newStatus: AppointmentStatus) => {
+    try {
+      await axios.put(`${API_BASE_URL}/api/hospital-appointments/${appointmentId}/status`, {
+        status: newStatus,
+      });
+
+      const appointment = appointments.find(apt => apt._id === appointmentId);
+      if (newStatus === 'confirmed' && appointment) {
+        setSelectedAppointment(appointment);
+        setShowPlanningForm(true);
+      } else {
+        setAppointments(prev =>
+          prev.map(apt =>
+            apt._id === appointmentId ? { ...apt, status: newStatus } : apt
+          )
+        );
+        setMessage(`Rendez-vous ${newStatus === 'confirmed' ? 'confirmé' : 'annulé'}`);
+      }
+    } catch (error) {
+      console.error('Erreur de mise à jour:', error);
+      setMessage("Erreur lors de la mise à jour du statut.");
+    }
+  };
+
+  const handlePlanningSubmit = async () => {
+    if (!selectedAppointment) return;
+    try {
+      await axios.put(`${API_BASE_URL}/api/hospital-appointments/${selectedAppointment._id}/planning`, {
+        appointmentDate,
+        requiredDocuments,
+        status: 'confirmed',
+      });
+
+      setAppointments(prev =>
+        prev.map(apt =>
+          apt._id === selectedAppointment._id
+            ? { ...apt, status: 'confirmed', appointmentDate, requiredDocuments }
+            : apt
+        )
+      );
+
+      setMessage("Planification confirmée !");
+      setShowPlanningForm(false);
+      setSelectedAppointment(null);
+      setAppointmentDate('');
+      setRequiredDocuments('');
+    } catch (error) {
+      console.error('Erreur planification:', error);
+      setMessage("Erreur lors de la planification.");
+    }
+  };
+
+  const filteredAppointments = appointments
+    .filter(apt => activeFilter === 'all' || apt.status === activeFilter)
+    .filter(apt => {
+      const q = searchTerm.toLowerCase();
+      return (
+        apt.patientId?.nom?.toLowerCase().includes(q) ||
+        apt.patientId?.prenom?.toLowerCase().includes(q) ||
+        apt.specialty?.toLowerCase().includes(q)
+      );
+    });
 
   return (
     <View style={styles.container}>
-      <Text style={styles.welcome}>Bienvenue, {userName.split(' ')[0]}</Text>
+      <Text style={styles.title}>🏥 Tableau de bord Hôpital</Text>
 
-      <Text style={styles.sectionTitle}>📅 Prochains rendez-vous</Text>
-      {appointments.length === 0 ? (
-        <Text style={styles.empty}>Aucun rendez-vous à venir.</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Rechercher un patient ou spécialité"
+        value={searchTerm}
+        onChangeText={setSearchTerm}
+      />
+
+      <View style={styles.filterRow}>
+        {['all', 'pending', 'confirmed', 'cancelled'].map((status) => (
+          <TouchableOpacity
+            key={status}
+            style={[styles.filterBtn, activeFilter === status && styles.filterActive]}
+            onPress={() => setActiveFilter(status as AppointmentStatus | 'all')}
+          >
+            <Text style={styles.filterText}>{status.toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {loading ? (
+        <Text style={styles.info}>Chargement...</Text>
+      ) : filteredAppointments.length === 0 ? (
+        <Text style={styles.info}>Aucun rendez-vous trouvé.</Text>
       ) : (
         <FlatList
-          data={appointments.slice(0, 3)}
+          data={filteredAppointments}
           keyExtractor={(item) => item._id}
           renderItem={({ item }) => (
             <View style={styles.card}>
-              <Text style={styles.cardText}>👨‍⚕️ {item.doctorName}</Text>
-              <Text style={styles.cardSub}>🕒 {new Date(item.date).toLocaleString('fr-FR')}</Text>
+              <Text style={styles.cardTitle}>{item.specialty}</Text>
+              <Text>Patient: {item.patientId.nom} {item.patientId.prenom}</Text>
+              <Text>Status: {item.status}</Text>
+              <Text>Demandé le: {new Date(item.createdAt).toLocaleString('fr-FR')}</Text>
+              {item.appointmentDate && (
+                <Text>Rendez-vous: {new Date(item.appointmentDate).toLocaleString('fr-FR')}</Text>
+              )}
+              {item.requiredDocuments && (
+                <Text>Docs requis: {item.requiredDocuments}</Text>
+              )}
+              {item.status === 'pending' && (
+                <View style={styles.actions}>
+                  <Button title="Confirmer" onPress={() => handleStatusChange(item._id, 'confirmed')} />
+                  <Button title="Annuler" color="red" onPress={() => handleStatusChange(item._id, 'cancelled')} />
+                </View>
+              )}
             </View>
           )}
         />
       )}
 
-     
+      {showPlanningForm && selectedAppointment && (
+        <View style={styles.planningBox}>
+          <Text style={styles.planningTitle}>Planifier RDV avec {selectedAppointment.patientId.nom}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Date et heure (AAAA-MM-JJTHH:mm)"
+            value={appointmentDate}
+            onChangeText={setAppointmentDate}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Documents requis"
+            value={requiredDocuments}
+            onChangeText={setRequiredDocuments}
+          />
+          <Button title="Confirmer" onPress={handlePlanningSubmit} />
+          <Button title="Annuler" color="gray" onPress={() => setShowPlanningForm(false)} />
+        </View>
+      )}
+
+      {message !== '' && <Text style={styles.alert}>{message}</Text>}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.background,
-    flex: 1,
-    padding: 20,
-  },
-  welcome: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    color: colors.accent,
-    marginTop: 10,
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  empty: {
-    color: colors.muted,
-    fontStyle: 'italic',
+  container: { padding: 20, flex: 1, backgroundColor: '#f0f4f8' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+  input: {
+    backgroundColor: 'white',
+    padding: 10,
     marginBottom: 10,
+    borderRadius: 6,
+    borderColor: '#ccc',
+    borderWidth: 1,
   },
+  filterRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  filterBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    backgroundColor: '#e2e8f0',
+  },
+  filterActive: { backgroundColor: '#3b82f6' },
+  filterText: { color: '#111' },
+  info: { textAlign: 'center', marginTop: 20 },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: '#fff',
     padding: 15,
-    borderRadius: 10,
+    borderRadius: 8,
     marginBottom: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
+    elevation: 2,
   },
-  doctorCard: {
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: 10,
-    marginRight: 10,
-    borderColor: colors.border,
-    borderWidth: 1,
+  cardTitle: { fontWeight: 'bold', fontSize: 16, marginBottom: 5 },
+  actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  alert: {
+    backgroundColor: '#d1fae5',
+    color: '#065f46',
+    padding: 10,
+    borderRadius: 6,
+    marginTop: 10,
+    textAlign: 'center',
   },
-  cardText: {
-    color: colors.text,
-    fontWeight: '600',
+  planningBox: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 8,
+    elevation: 4,
+    marginTop: 20,
   },
-  cardSub: {
-    color: colors.muted,
-    marginTop: 4,
-  },
+  planningTitle: { fontWeight: 'bold', fontSize: 16, marginBottom: 10 },
 });
 
-export default Home;
+export default HospitalDashboard;

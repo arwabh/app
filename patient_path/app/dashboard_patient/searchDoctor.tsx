@@ -1,215 +1,235 @@
+// app/searchDoctor.tsx
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Platform
+} from 'react-native';
 import axios from 'axios';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 
-interface SearchResult {
-  _id: string;
-  role: string;
-  nom: string;
-  prenom: string;
-  specialite?: string;
-  adresse?: string;
-  photo?: string;
-}
-
-const specialites = [
-  'Cardiologie',
-  'Dermatologie',
-  'Gynécologie',
-  'Neurologie',
-  'Pédiatrie',
-  'Psychiatrie',
-  'Radiologie',
-  'Urologie',
-  'Anesthésie',
-  'Médecine Générale',
-];
+const API_BASE_URL = 'http://192.168.96.83:5001';
 
 const villes = [
-  'Tunis',
-  'Sfax',
-  'Sousse',
-  'Gabès',
-  'Nabeul',
-  'Bizerte',
-  'Kairouan',
+  'Tunis', 'Ariana', 'Ben Arous', 'Manouba', 'Nabeul', 'Zaghouan', 'Bizerte', 'Béja',
+  'Jendouba', 'Le Kef', 'Siliana', 'Sousse', 'Monastir', 'Mahdia', 'Sfax', 'Kairouan',
+  'Kasserine', 'Sidi Bouzid', 'Gabès', 'Medenine', 'Tataouine', 'Gafsa', 'Tozeur', 'Kebili'
 ];
 
-const SearchDoctorScreen = () => {
-  const [query, setQuery] = useState('');
-  const [specialite, setSpecialite] = useState('');
-  const [ville, setVille] = useState('');
-  const [categorie, setCategorie] = useState<'' | 'medecin' | 'laboratoire' | 'hopital'>('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+const categories = ['Médecin', 'Laboratoire', 'Hôpital'];
+
+const SearchDoctor = () => {
+  const [search, setSearch] = useState('');
+  const [specialty, setSpecialty] = useState('');
+  const [city, setCity] = useState('');
+  const [category, setCategory] = useState('');
+  const [results, setResults] = useState<any[]>([]);
   const router = useRouter();
 
-  const handleSearch = async () => {
+  useEffect(() => {
+    if (search || specialty || city || category) {
+      fetchResults();
+    }
+  }, [search, specialty, city, category]);
+
+  const fetchResults = async () => {
     try {
-      const response = await axios.get(`http://192.168.135.83:5001/api/search`, {
-        params: {
-          query,
-          specialite,
-          ville,
-          categorie
-        }
+      const res = await axios.get(`${API_BASE_URL}/api/search`, {
+        params: { search, specialty, city, category }
       });
-      setResults(response.data);
+  
+      const filtered = res.data.filter((user: any) => {
+        const role = user.roles?.[0]?.toLowerCase();
+        if (category === 'Médecin' && role !== 'doctor') return false;
+        if (category === 'Laboratoire' && role !== 'labs') return false;
+        if (category === 'Hôpital' && role !== 'hospital') return false;
+        return true;
+      });
+  
+      setResults(filtered);
     } catch (err) {
-      console.error('Erreur lors de la recherche', err);
+      console.error('Erreur de recherche', err);
     }
   };
+  
 
-  useEffect(() => {
-    handleSearch();
-  }, [query, specialite, ville, categorie]);
 
-  const navigateToProfile = (item: SearchResult) => {
-    if (item.role === 'medecin') {
-      router.push(`/dashboard_patient/DoctorProfile/${item._id}`);
-    } else if (item.role === 'laboratoire') {
-      router.push(`/dashboard_patient/LaboProfile/${item._id}`);
-    }
+  const getRoleLabel = (role: string) => {
+    const r = role.toLowerCase();
+    if (r === 'doctor') return '🩺 Médecin';
+    if (r === 'labs') return '🧪 Laboratoire';
+    if (r === 'hospital') return '🏥 Hôpital';
+    return '👤 Professionnel';
+  };
+
+  const handleProfileClick = (userId: string) => {
+    router.push(`/dashboard_patient/unifiedProfile?id=${userId}`);
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>🔍 Recherche</Text>
+    <ScrollView style={styles.container}>
+      <Text style={styles.title}>Recherche</Text>
 
-      <View style={styles.buttonContainer}>
-        {(['medecin', 'laboratoire', 'hopital'] as const).map((cat) => (
+      <Text style={styles.label}>Catégorie</Text>
+      <View style={styles.optionsContainer}>
+        {categories.map((cat) => (
           <TouchableOpacity
             key={cat}
-            style={[
-              styles.categoryButton,
-              categorie === cat && styles.selectedCategory
-            ]}
-            onPress={() => setCategorie(cat)}
-          >
-            <Text style={styles.buttonText}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+            onPress={() => setCategory(cat)}
+            style={[styles.option, category === cat && styles.selected]}>
+            <Text style={category === cat ? styles.selectedText : styles.optionText}>{cat}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       <TextInput
-        style={styles.input}
         placeholder="Nom ou prénom"
-        value={query}
-        onChangeText={setQuery}
+        value={search}
+        onChangeText={setSearch}
+        style={styles.input}
       />
 
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={specialite}
-          onValueChange={(value) => setSpecialite(value)}
-        >
-          <Picker.Item label="Spécialité" value="" />
-          {specialites.map((spec) => (
-            <Picker.Item key={spec} label={spec} value={spec} />
-          ))}
-        </Picker>
-      </View>
+      {category === 'Médecin' && (
+        <TextInput
+          placeholder="Spécialité (ex: Cardiologie)"
+          value={specialty}
+          onChangeText={setSpecialty}
+          style={styles.input}
+        />
+      )}
 
+      <Text style={styles.label}>Ville</Text>
       <View style={styles.pickerContainer}>
         <Picker
-          selectedValue={ville}
-          onValueChange={(value) => setVille(value)}
-        >
-          <Picker.Item label="Ville" value="" />
+          selectedValue={city}
+          onValueChange={(itemValue) => setCity(itemValue)}
+          style={styles.picker}>
+          <Picker.Item label="Sélectionner une ville" value="" />
           {villes.map((v) => (
             <Picker.Item key={v} label={v} value={v} />
           ))}
         </Picker>
       </View>
 
-      <FlatList
-        data={results}
-        keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => navigateToProfile(item)} style={styles.card}>
+      <Text style={styles.resultTitle}>Résultats</Text>
+      {results.map((item) => (
+        <TouchableOpacity
+          key={item._id}
+          onPress={() => handleProfileClick(item._id)}
+          style={styles.card}>
+          {item.photo && (
+            <Image
+              source={{ uri: `${API_BASE_URL}/${item.photo}` }}
+              style={styles.avatar}
+            />
+          )}
+          <View style={styles.infoContainer}>
             <Text style={styles.name}>{item.nom} {item.prenom}</Text>
-            <Text style={styles.sub}>{item.specialite}</Text>
-            <Text style={styles.sub}>{item.adresse}</Text>
-            <Text style={styles.sub}>({item.role === 'medecin' ? 'Médecin' : 'Laboratoire'})</Text>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>Aucun résultat trouvé.</Text>}
-      />
-    </View>
+            <Text style={styles.adresse}>📍 {item.adresse}</Text>
+            {item.specialite && <Text style={styles.specialite}>🧬 {item.specialite}</Text>}
+            <Text style={styles.role}>{getRoleLabel(item.roles?.[0] || '')}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
   );
 };
 
+export default SearchDoctor;
+
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: '#F5FCFF',
-    flex: 1,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#038A91',
-  },
+  container: { padding: 16, backgroundColor: '#F0FAF9' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, color: '#0A3D62' },
   input: {
     backgroundColor: '#fff',
-    padding: 10,
-    marginBottom: 10,
+    padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#dcdcdc',
+    marginBottom: 12
+  },
+  label: { fontWeight: '600', fontSize: 16, marginBottom: 6, color: '#0A3D62' },
+  optionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12
+  },
+  option: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: '#E0F7F1',
+    borderRadius: 20,
+    margin: 4
+  },
+  selected: {
+    backgroundColor: '#03C490'
+  },
+  optionText: {
+    color: '#333'
+  },
+  selectedText: {
+    color: '#fff',
+    fontWeight: 'bold'
   },
   pickerContainer: {
     backgroundColor: '#fff',
     borderRadius: 8,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#ccc',
-    overflow: 'hidden',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 12,
+    overflow: 'hidden'
   },
-  categoryButton: {
-    flex: 1,
-    padding: 10,
-    marginHorizontal: 4,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 8,
-    alignItems: 'center',
+  picker: {
+    height: Platform.OS === 'ios' ? 200 : 50,
+    width: '100%',
   },
-  selectedCategory: {
-    backgroundColor: '#03C490',
-  },
-  buttonText: {
-    color: '#fff',
+  resultTitle: {
+    fontSize: 20,
     fontWeight: '600',
+    marginVertical: 16,
+    color: '#0A3D62'
   },
   card: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
     padding: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     marginBottom: 12,
-    borderColor: '#ddd',
-    borderWidth: 1,
+    borderLeftColor: '#03C490',
+    borderLeftWidth: 4,
+    alignItems: 'center'
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginRight: 12
+  },
+  infoContainer: {
+    flex: 1
   },
   name: {
     fontWeight: 'bold',
     fontSize: 16,
-    color: '#03C490',
+    color: '#038A91'
   },
-  sub: {
-    fontSize: 14,
-    color: '#333',
+  adresse: {
+    color: '#444',
+    marginTop: 4
   },
-  empty: {
-    textAlign: 'center',
-    color: '#999',
-    marginTop: 20,
+  specialite: {
+    color: '#555',
+    marginTop: 2
+  },
+  role: {
+    marginTop: 4,
+    color: '#888',
+    fontStyle: 'italic'
   }
 });
-
-export default SearchDoctorScreen;

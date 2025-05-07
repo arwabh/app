@@ -1,6 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_BASE_URL = 'http://192.168.96.83:5001';
 
 interface Patient {
   nom: string;
@@ -15,37 +27,48 @@ interface Patient {
 
 interface Rapport {
   _id: string;
-  nomMedecin: string;
-  date: string;
-  contenu: string;
+  description: string;
+  fileUrl: string;
+  createdAt: string;
 }
 
 interface Analyse {
   _id: string;
-  laboratoire: string;
+  testType: string;
+  results: string;
+  fileUrl?: string;
   date: string;
-  resultat: string;
+  status: string;
 }
 
 const ProfileScreen = () => {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [rapports, setRapports] = useState<Rapport[]>([]);
   const [analyses, setAnalyses] = useState<Analyse[]>([]);
-
-  const userId = 'exemple_id_patient'; // À remplacer par le vrai ID (ex: depuis le contexte ou AsyncStorage)
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get(`http://192.168.135.83:5001/api/patient/profile/${userId}`)
-      .then(res => setPatient(res.data))
-      .catch(err => console.error('Erreur profil patient', err));
+    const loadProfile = async () => {
+      const id = await AsyncStorage.getItem('userId');
+      if (!id) return;
 
-    axios.get(`http://192.168.135.83:5001/api/patient/rapports/${userId}`)
-      .then(res => setRapports(res.data))
-      .catch(err => console.error('Erreur chargement rapports', err));
+      try {
+        const [resProfile, resRapports, resAnalyses] = await Promise.all([
+          axios.get(`${API_BASE_URL}/api/patient/profile/${id}`),
+          axios.get(`${API_BASE_URL}/api/patient/rapports/${id}`),
+          axios.get(`${API_BASE_URL}/api/patient/analyses/${id}`),
+        ]);
+        setPatient(resProfile.data);
+        setRapports(resRapports.data);
+        setAnalyses(resAnalyses.data);
+      } catch (err) {
+        console.error('Erreur chargement profil', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    axios.get(`http://192.168.135.83:5001/api/patient/analyses/${userId}`)
-      .then(res => setAnalyses(res.data))
-      .catch(err => console.error('Erreur chargement analyses', err));
+    loadProfile();
   }, []);
 
   const handleInputChange = (field: keyof Patient, value: string) => {
@@ -54,14 +77,24 @@ const ProfileScreen = () => {
     }
   };
 
-  const handleSave = () => {
-    axios.put(`http://192.168.135.83:5001/api/patient/profile/${userId}`, patient)
-      .then(() => Alert.alert('✅ Succès', 'Profil mis à jour avec succès.'))
-      .catch(() => Alert.alert('❌ Erreur', 'Échec de la mise à jour.'));
+  const handleSave = async () => {
+    const id = await AsyncStorage.getItem('userId');
+    if (!id || !patient) return;
+
+    try {
+      await axios.put(`${API_BASE_URL}/api/patient/profile/${id}`, patient);
+      Alert.alert('✅ Succès', 'Profil mis à jour avec succès.');
+    } catch {
+      Alert.alert('❌ Erreur', 'Échec de la mise à jour.');
+    }
   };
 
-  if (!patient) {
+  if (loading) {
     return <Text style={styles.loading}>Chargement du profil...</Text>;
+  }
+
+  if (!patient) {
+    return <Text style={styles.loading}>Profil introuvable.</Text>;
   }
 
   return (
@@ -69,7 +102,7 @@ const ProfileScreen = () => {
       <Text style={styles.title}>Mon Profil</Text>
 
       {patient.photo && (
-        <Image source={{ uri: patient.photo }} style={styles.profileImage} />
+        <Image source={{ uri: `${API_BASE_URL}/${patient.photo}` }} style={styles.profileImage} />
       )}
 
       <TextInput
@@ -109,18 +142,23 @@ const ProfileScreen = () => {
       <Text style={styles.subTitle}>📄 Rapports Médicaux</Text>
       {rapports.map((r) => (
         <View key={r._id} style={styles.card}>
-          <Text style={styles.bold}>{r.nomMedecin}</Text>
-          <Text>{new Date(r.date).toLocaleDateString('fr-FR')}</Text>
-          <Text>{r.contenu}</Text>
+          <Text style={styles.bold}>Description :</Text>
+          <Text>{r.description}</Text>
+          <Text style={{ marginTop: 4 }}>{new Date(r.createdAt).toLocaleDateString('fr-FR')}</Text>
+          <Text style={{ color: '#038A91' }}>📎 {r.fileUrl.split('/').pop()}</Text>
         </View>
       ))}
 
       <Text style={styles.subTitle}>🔬 Résultats de laboratoire</Text>
       {analyses.map((a) => (
         <View key={a._id} style={styles.card}>
-          <Text style={styles.bold}>{a.laboratoire}</Text>
-          <Text>{new Date(a.date).toLocaleDateString('fr-FR')}</Text>
-          <Text>{a.resultat}</Text>
+          <Text style={styles.bold}>Type : {a.testType}</Text>
+          <Text>Résultat : {a.results}</Text>
+          <Text>Date : {new Date(a.date).toLocaleDateString('fr-FR')}</Text>
+          <Text>Statut : {a.status}</Text>
+          {a.fileUrl && (
+            <Text style={{ color: '#038A91' }}>📎 {a.fileUrl.split('/').pop()}</Text>
+          )}
         </View>
       ))}
     </ScrollView>
