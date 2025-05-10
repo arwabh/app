@@ -4,7 +4,7 @@ const messageSchema = new mongoose.Schema({
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment',
-    required: true
+    required: false
   },
   senderId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -28,6 +28,6 @@ const messageSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
-});
+}, { timestamps: true }); // ✅ ajoute ceci
 
 module.exports = mongoose.model('Message', messageSchema); 

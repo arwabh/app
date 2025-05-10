@@ -3,228 +3,193 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   ScrollView,
-  TextInput,
   TouchableOpacity,
-  Alert,
+  Linking,
 } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.93.83:5001';
 
-interface Patient {
-  nom: string;
-  prenom: string;
-  dateNaissance: string;
-  groupeSanguin?: string;
-  maladiesChroniques?: string;
-  taille?: number;
-  poids?: number;
-  photo?: string;
-}
+export default function ProfileScreen() {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [info, setInfo] = useState<any>(null);
+  const [docs, setDocs] = useState<any[]>([]);
+  const [labs, setLabs] = useState<any[]>([]);
+  const router = useRouter();
 
-interface Rapport {
-  _id: string;
-  description: string;
-  fileUrl: string;
-  createdAt: string;
-}
-
-interface Analyse {
-  _id: string;
-  testType: string;
-  results: string;
-  fileUrl?: string;
-  date: string;
-  status: string;
-}
-
-const ProfileScreen = () => {
-  const [patient, setPatient] = useState<Patient | null>(null);
-  const [rapports, setRapports] = useState<Rapport[]>([]);
-  const [analyses, setAnalyses] = useState<Analyse[]>([]);
-  const [loading, setLoading] = useState(true);
+  const calculateAge = (birthDateString: string): number => {
+    const birthDate = new Date(birthDateString);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+  };
 
   useEffect(() => {
-    const loadProfile = async () => {
-      const id = await AsyncStorage.getItem('userId');
-      if (!id) return;
-
+    const fetchData = async () => {
       try {
-        const [resProfile, resRapports, resAnalyses] = await Promise.all([
+        const id = await AsyncStorage.getItem('userId');
+        if (!id) return;
+        setUserId(id);
+
+        const [resInfo, resDocs, resLabs] = await Promise.all([
           axios.get(`${API_BASE_URL}/api/patient/profile/${id}`),
-          axios.get(`${API_BASE_URL}/api/patient/rapports/${id}`),
-          axios.get(`${API_BASE_URL}/api/patient/analyses/${id}`),
+          axios.get(`${API_BASE_URL}/api/patient/medical-documents/${id}`),
+          axios.get(`${API_BASE_URL}/api/patient/analyses/${id}`)
         ]);
-        setPatient(resProfile.data);
-        setRapports(resRapports.data);
-        setAnalyses(resAnalyses.data);
+
+        const patientData = resInfo.data;
+        if (patientData.dateNaissance) {
+          patientData.age = calculateAge(patientData.dateNaissance);
+        }
+
+        setInfo(patientData);
+        setDocs(resDocs.data);
+        setLabs(resLabs.data);
       } catch (err) {
-        console.error('Erreur chargement profil', err);
-      } finally {
-        setLoading(false);
+        console.error('❌ Erreur chargement données patient :', err);
       }
     };
 
-    loadProfile();
+    fetchData();
   }, []);
 
-  const handleInputChange = (field: keyof Patient, value: string) => {
-    if (patient) {
-      setPatient({ ...patient, [field]: value });
-    }
-  };
-
-  const handleSave = async () => {
-    const id = await AsyncStorage.getItem('userId');
-    if (!id || !patient) return;
-
-    try {
-      await axios.put(`${API_BASE_URL}/api/patient/profile/${id}`, patient);
-      Alert.alert('✅ Succès', 'Profil mis à jour avec succès.');
-    } catch {
-      Alert.alert('❌ Erreur', 'Échec de la mise à jour.');
-    }
-  };
-
-  if (loading) {
-    return <Text style={styles.loading}>Chargement du profil...</Text>;
-  }
-
-  if (!patient) {
-    return <Text style={styles.loading}>Profil introuvable.</Text>;
-  }
-
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Mon Profil</Text>
-
-      {patient.photo && (
-        <Image source={{ uri: `${API_BASE_URL}/${patient.photo}` }} style={styles.profileImage} />
+    <ScrollView style={styles.container}>
+      {info && (
+        <View style={styles.infoCard}>
+          <Text style={styles.sectionTitle}>🧍‍♂️ Informations du patient</Text>
+          <Text>Nom : {info.nom || '-'}</Text>
+          <Text>Prénom : {info.prenom || '-'}</Text>
+          <Text>Âge : {info.age ? `${info.age} ans` : '-'}</Text>
+          <Text>Taille : {info.taille ? `${info.taille} cm` : '-'}</Text>
+          <Text>Poids : {info.poids ? `${info.poids} kg` : '-'}</Text>
+          <Text>Groupe sanguin : {info.bloodType || '-'}</Text>
+          <Text>Allergies : {info.allergies?.join(', ') || 'Aucune'}</Text>
+          <Text style={{ marginTop: 6, fontWeight: 'bold' }}>📞 Contact d'urgence</Text>
+          {info.emergencyContact ? (
+            <>
+              <Text>Nom : {info.emergencyContact.name}</Text>
+              <Text>Téléphone : {info.emergencyContact.phone}</Text>
+              <Text>Relation : {info.emergencyContact.relationship}</Text>
+            </>
+          ) : (
+            <Text>Aucun contact renseigné</Text>
+          )}
+          <TouchableOpacity
+            style={styles.updateBtn}
+            onPress={() => router.push('/dashboard_patient/EditPatientInfoScreen')}
+          >
+            <Text style={styles.updateText}>✏️ Modifier</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
-      <TextInput
-        style={styles.input}
-        placeholder="Taille (cm)"
-        keyboardType="numeric"
-        value={patient.taille?.toString() || ''}
-        onChangeText={(text) => handleInputChange('taille', text)}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Poids (kg)"
-        keyboardType="numeric"
-        value={patient.poids?.toString() || ''}
-        onChangeText={(text) => handleInputChange('poids', text)}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Groupe sanguin"
-        value={patient.groupeSanguin || ''}
-        onChangeText={(text) => handleInputChange('groupeSanguin', text)}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Maladies chroniques"
-        value={patient.maladiesChroniques || ''}
-        onChangeText={(text) => handleInputChange('maladiesChroniques', text)}
-      />
-
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveText}>💾 Enregistrer</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.subTitle}>📄 Rapports Médicaux</Text>
-      {rapports.map((r) => (
-        <View key={r._id} style={styles.card}>
-          <Text style={styles.bold}>Description :</Text>
-          <Text>{r.description}</Text>
-          <Text style={{ marginTop: 4 }}>{new Date(r.createdAt).toLocaleDateString('fr-FR')}</Text>
-          <Text style={{ color: '#038A91' }}>📎 {r.fileUrl.split('/').pop()}</Text>
+      <Text style={styles.title}>📄 Documents médicaux</Text>
+      {docs.map((doc) => (
+        <View key={doc._id} style={styles.card}>
+          <Text style={styles.author}>{doc.authorName || 'Médecin inconnu'}</Text>
+          <Text style={styles.date}>
+            {doc.date ? new Date(doc.date).toLocaleDateString() : 'Date inconnue'}
+          </Text>
+          <Text
+            style={styles.link}
+            onPress={() => Linking.openURL(doc.fileUrl)}
+          >
+            📎 {doc.fileName}
+          </Text>
         </View>
       ))}
 
-      <Text style={styles.subTitle}>🔬 Résultats de laboratoire</Text>
-      {analyses.map((a) => (
-        <View key={a._id} style={styles.card}>
-          <Text style={styles.bold}>Type : {a.testType}</Text>
-          <Text>Résultat : {a.results}</Text>
-          <Text>Date : {new Date(a.date).toLocaleDateString('fr-FR')}</Text>
-          <Text>Statut : {a.status}</Text>
-          {a.fileUrl && (
-            <Text style={{ color: '#038A91' }}>📎 {a.fileUrl.split('/').pop()}</Text>
-          )}
+      <Text style={styles.title}>🔬 Résultats d’analyse</Text>
+      {labs.map((lab) => (
+        <View key={lab._id} style={styles.card}>
+          <Text style={styles.author}>{lab.authorName || 'Laboratoire inconnu'}</Text>
+          <Text style={styles.date}>
+            {lab.date ? new Date(lab.date).toLocaleDateString() : 'Date inconnue'}
+          </Text>
+          <Text style={styles.testType}>🧪 {lab.testType}</Text>
+          <Text
+            style={styles.link}
+            onPress={() => Linking.openURL(lab.fileUrl)}
+          >
+            📎 {lab.fileName}
+          </Text>
         </View>
       ))}
     </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     padding: 16,
-    backgroundColor: '#F5FCFF',
+    backgroundColor: '#f8f9fc',
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#038A91',
-  },
-  loading: {
-    marginTop: 50,
-    textAlign: 'center',
-    fontSize: 16,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  input: {
-    backgroundColor: '#fff',
-    padding: 10,
-    marginVertical: 8,
-    borderRadius: 8,
-    borderColor: '#ccc',
-    borderWidth: 1,
-  },
-  saveButton: {
-    backgroundColor: '#03C490',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  saveText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  subTitle: {
-    fontSize: 18,
-    marginTop: 20,
     marginBottom: 8,
-    color: '#333',
+    color: '#0a4f6c',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#1c3e57',
+  },
+  infoCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   card: {
     backgroundColor: '#fff',
     padding: 12,
     borderRadius: 8,
     marginBottom: 10,
-    borderColor: '#ddd',
     borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
-  bold: {
+  author: {
+    fontWeight: '600',
+    fontSize: 15,
+    color: '#333',
+  },
+  date: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  testType: {
+    fontSize: 14,
+    color: '#555',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  link: {
+    color: '#007bff',
+    marginTop: 6,
+    textDecorationLine: 'underline',
+    fontSize: 15,
+  },
+  updateBtn: {
+    marginTop: 12,
+    backgroundColor: '#007bff',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  updateText: {
+    color: '#fff',
     fontWeight: 'bold',
-    color: '#038A91',
   },
 });
-
-export default ProfileScreen;

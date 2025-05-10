@@ -1,3 +1,5 @@
+
+
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -23,10 +25,16 @@ const AmbulanceReport = require('./models/AmbulanceReport');
 const Vehicle = require('./models/Vehicle');
 const Article = require('./models/Article');
 const Comment = require('./models/Comment');
-const MedicalReport = require('./models/MedicalReport'); // si pas encore fait
+const MedicalDocument = require('./models/MedicalReport'); // si pas encore fait
 
 // Configuration CORS
-
+async function createNotification(userId, message) {
+  try {
+    await Notification.create({ userId, message });
+  } catch (err) {
+    console.error('Erreur création notification :', err);
+  }
+}
 app.get('/favicon.ico', (req, res) => res.status(204));
 
 app.use(cors({
@@ -42,6 +50,8 @@ app.options('*', cors({
 
 // middlewares
 app.use(express.json());
+
+
 
 // 🟰 Tu pourras ensuite continuer ici avec ta logique MongoDB, schemas, etc.
 
@@ -83,32 +93,28 @@ const upload = multer({ storage });
 
 // Configuration pour les documents médicaux
 const medicalDocsStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const path = './uploads/medical-docs';
-        if (!fs.existsSync(path)) {
-            fs.mkdirSync(path, { recursive: true });
-        }
-        cb(null, path);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'medical-' + uniqueSuffix + path.extname(file.originalname));
+  destination: (req, file, cb) => {
+    const uploadPath = './uploads/medical-docs';
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
     }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'medical-' + uniqueSuffix + path.extname(file.originalname));
+  }
 });
+const uploadMedical = multer({ storage: medicalDocsStorage });
+
 
 const uploadMedicalDoc = multer({
-    storage: medicalDocsStorage,
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Format de fichier non supporté. Utilisez PDF, JPEG ou PNG.'));
-        }
-    },
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB max
-    }
+  storage: medicalDocsStorage,
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Format non supporté'));
+  }
 });
 
 // Configuration pour les résultats de laboratoire
@@ -260,76 +266,71 @@ app.post('/signup', async(req, res) => {
 // Login
 // Login
 app.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-  
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Utilisateur non trouvé' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Mot de passe incorrect' });
+    }
+
+    // ✅ On extrait le rôle principal de l'utilisateur
+    const role = user.roles?.[0] || 'unknown';
+
+    return res.json({
+      message: 'Connexion réussie',
+      uid: user._id,
+      email: user.email,
+      role: user.roles || 'unknown',
+
+    })
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const user = await mongoose.connection.db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(req.params.id) });
+
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
+
+    res.status(200).json(user);
+  } catch (err) {
+    console.error("Erreur dans GET /api/users/:id :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+  app.get('/api/User/:id', async (req, res) => {
     try {
-      const user = await User.findOne({ email });
+      const user = await User.findById(req.params.id).select('nom prenom');
   
       if (!user) {
-        return res.status(400).json({ message: 'Utilisateur non trouvé' });
+        return res.status(404).json({ message: 'Utilisateur non trouvé' });
       }
   
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        return res.status(400).json({ message: 'Mot de passe incorrect' });
-      }
-  
-      // ✅ On extrait le rôle principal de l'utilisateur
-      const role = user.roles?.[0] || 'unknown';
-  
-      return res.json({
-        message: 'Connexion réussie',
-        uid: user._id,
-        email: user.email,
-        role: user.roles || 'unknown',
-
-      })
+      res.status(200).json({
+        nom: user.nom,
+        prenom: user.prenom
+      });
     } catch (err) {
-      console.error(err);
+      console.error('❌ Erreur récupération utilisateur :', err);
       res.status(500).json({ message: 'Erreur serveur' });
     }
   });
   
-
- 
   
-  app.get('/api/patient/rapports/:patientId', async (req, res) => {
-    const { patientId } = req.params;
-    try {
-      const rapports = await db.collection('medicalreports')
-        .find({ patientId: new mongoose.Types.ObjectId(patientId) })
-        .sort({ createdAt: -1 })
-        .toArray();
-  
-      const formatted = rapports.map(r => ({
-        _id: r._id,
-        nomMedecin: r.doctorId?.toString(), // ou faire un `populate` si tu veux le nom complet
-        date: r.createdAt,
-        contenu: r.description,
-        fileUrl: r.fileUrl
-      }));
-  
-      res.json(formatted);
-    } catch (err) {
-      console.error("❌ Erreur récupération rapports:", err);
-      res.status(500).json({ message: 'Erreur serveur' });
-    }
-  });
-  
-  app.get('/api/users/:id', async (req, res) => {
-    try {
-      const user = await mongoose.connection.db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(req.params.id) });
-  
-      if (!user) {
-        return res.status(404).json({ message: "Utilisateur non trouvé" });
-      }
-  
-      res.status(200).json(user);
-    } catch (err) {
-      console.error("Erreur dans GET /api/users/:id :", err);
-      res.status(500).json({ message: "Erreur serveur" });
-    }
-  });
   
   app.get('/api/patient/appointments/:id', async (req, res) => {
     try {
@@ -339,30 +340,6 @@ app.post('/login', async (req, res) => {
     } catch (error) {
       console.error('Erreur appointments:', error);
       res.status(500).json({ message: 'Erreur serveur' });
-    }
-  });
-  app.get('/api/patient/profile/:id', async (req, res) => {
-    const { id } = req.params;
-  
-    try {
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({ message: 'ID invalide' });
-      }
-  
-      const user = await mongoose.model('User').findById(id).select('-password -resetPasswordToken -resetPasswordExpires');
-  
-      if (!user) {
-        return res.status(404).json({ message: 'Utilisateur non trouvé' });
-      }
-  
-      if (!user.roles.includes('patient')) {
-        return res.status(403).json({ message: 'Ce compte n’est pas un patient.' });
-      }
-  
-      res.status(200).json(user);
-    } catch (error) {
-      console.error('❌ Erreur serveur récupération profil patient :', error);
-      res.status(500).json({ message: 'Erreur serveur', error: error.message });
     }
   });
   
@@ -386,54 +363,50 @@ app.post('/login', async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
+// Juste en dessous de tes autres routes
+app.get('/api/hospitals', async (req, res) => {
+  try {
+    const hospitals = await User.find({ roles: { $in: ['hospital'] } });
+    res.json(hospitals);
+  } catch (err) {
+    console.error('Erreur recherche hôpitaux :', err);
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
 
-  app.get('/api/articles', async (req, res) => {
+
+  
+  app.get('/api/search', async (req, res) => {
+    const { nom, specialty, city, category } = req.query;
+  
+    const query = {};
+  
+    // Filtre par nom ou prénom
+    if (nom) {
+      query.$or = [
+        { nom: { $regex: new RegExp(nom, 'i') } },
+        { prenom: { $regex: new RegExp(nom, 'i') } }
+      ];
+    }
+  
+    // Filtre par spécialité
+    if (specialty) {
+      query.specialite = { $regex: new RegExp(specialty, 'i') };
+    }
+  
+    // Filtre par ville
+    if (city) {
+      query.adresse = { $regex: new RegExp(city, 'i') };
+    }
+  
     try {
-      const articles = await Article.find().sort({ createdAt: -1 });
-      res.json(articles);
-    } catch (error) {
-      console.error('Erreur articles:', error);
+      const users = await mongoose.connection.db.collection('users').find(query).toArray();
+      res.status(200).json(users);
+    } catch (err) {
+      console.error('Erreur recherche:', err);
       res.status(500).json({ message: 'Erreur serveur' });
     }
   });
-  
-  app.get('/api/search', async (req, res) => {
-    try {
-      const { query = '', specialite = '', ville = '', categorie = '' } = req.query;
-  
-      const filter = {
-        profileCompleted: true,
-      };
-  
-      if (query) {
-        filter.$or = [
-          { nom: new RegExp(query, 'i') },
-          { prenom: new RegExp(query, 'i') },
-        ];
-      }
-  
-      if (ville) {
-        filter.adresse = new RegExp(ville, 'i');
-      }
-  
-      if (categorie) {
-        filter.roles = { $in: [categorie] };
-      }
-  
-      // Appliquer le filtre de spécialité uniquement si la catégorie est médecin
-      if (categorie === 'medecin' && specialite) {
-        filter.specialty = new RegExp(specialite, 'i');
-      }
-  
-      const users = await User.find(filter).select('nom prenom adresse specialty photo roles');
-      res.json(users);
-    } catch (err) {
-      console.error('Erreur de recherche :', err);
-      res.status(500).json({ message: 'Erreur serveur lors de la recherche' });
-    }
-  });
-  
-  
   
   
 // Route pour récupérer la liste des médecins validés
@@ -1291,28 +1264,67 @@ app.get('/api/doctor/appointments/:doctorId', async(req, res) => {
         res.status(500).json({ message: 'Erreur serveur' });
     }
 });
+// server.js ou dans route appropriée
+app.get('/api/appointments', async (req, res) => {
+  const { patientId } = req.query;
+  try {
+    const appointments = await Appointment.find({ patientId })
+      .populate('doctorId', 'nom prenom email photo') // si tu veux info médecin
+      .sort({ date: -1 });
+    res.status(200).json(appointments);
+  } catch (error) {
+    console.error('❌ Erreur fetch appointments:', error);
+    res.status(500).json({ message: "Erreur lors de la récupération des rendez-vous" });
+  }
+});
 
+app.get('/api/messages/:appointmentId', async (req, res) => {
+  const { appointmentId } = req.params;
+  try {
+    const messages = await Message.find({ appointmentId }).sort({ sentAt: 1 });
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error('❌ Erreur fetch messages:', error);
+    res.status(500).json({ message: "Erreur lors de la récupération des messages" });
+  }
+});
+app.post('/api/messages', async (req, res) => {
+  const { senderId, receiverId, appointmentId, content } = req.body;
+  try {
+    const message = new Message({
+      senderId,
+      receiverId,
+      appointmentId,
+      content,
+      sentAt: new Date()
+    });
+    await message.save();
+    res.status(201).json(message);
+  } catch (error) {
+    console.error('❌ Erreur envoi message:', error);
+    res.status(500).json({ message: "Erreur lors de l'envoi du message" });
+  }
+});
 
-app.put('/api/appointments/:appointmentId/status', async(req, res) => {
+('/api/appointments/:appointmentId/status', async(req, res) => {
     try {
         const { appointmentId } = req.params;
         const { status } = req.body;
 
         const appointment = await Appointment.findByIdAndUpdate(
-            appointmentId, { status }, { new: true }
+            appointapp.putmentId, { status }, { new: true }
         );
 
         if (!appointment) {
             return res.status(404).json({ message: "Rendez-vous non trouvé." });
         }
-
+        appointment.status = status;
+        await appointment.save();
         // Notification pour le patient si confirmé
-        if (status === 'confirmed') {
-            await Notification.create({
-                userId: appointment.patientId, // 🧠 Assure-toi que `patientId` est bien dans ton modèle `Appointment`
-                message: `Votre rendez-vous du ${new Date(appointment.date).toLocaleString('fr-FR')} a été confirmé.`
-            });
-        }
+        await createNotification(
+          appointment.patient._id,
+          `Votre rendez-vous du ${appointment.date.toLocaleString()} a été ${status === 'confirmed' ? 'confirmé' : 'annulé'}.`
+        );
 
         res.status(200).json(appointment);
     } catch (error) {
@@ -1343,253 +1355,464 @@ app.get('/api/notifications/:userId', async(req, res) => {
     }
 });
 
+app.get('/api/notifications/:userId', async(req, res) => {
+  try {
+      const { userId } = req.params;
+      const notifications = await Notification.find({ userId })
+          .sort({ createdAt: -1 }) // Utiliser createdAt pour le tri
+          .lean(); // Pour une meilleure performance
+
+      res.status(200).json(notifications);
+  } catch (error) {
+      console.error("❌ Erreur notifications:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+app.get('/api/patient/notifications/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const notifications = await mongoose
+      .model('Notification')
+      .find({ userId: id })
+      .sort({ date: -1 });
+
+    if (!notifications) {
+      return res.status(404).json({ message: 'Aucune notification trouvée.' });
+    }
+
+    res.status(200).json(notifications);
+  } catch (err) {
+    console.error('Erreur chargement notifications:', err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+
 
 // 🆕 Route pour créer un rendez-vous patient
-app.post('/api/appointments', async(req, res) => {
-    try {
-        const { doctorId, patientId, date, reason } = req.body;
+app.post('/api/appointments', async (req, res) => {
+  const { patientId, doctorId, date, reason } = req.body;
+  if (!patientId || !doctorId || !date || !reason ) {
+    return res.status(400).json({ message: 'Champs manquants' });
+  }
 
-        if (!doctorId || !patientId || !date) {
-            return res.status(400).json({ message: "Champs obligatoires manquants." });
-        }
+  try {
+    const appointment = new Appointment({
+      patientId,
+      doctorId,
+      date,
+      reason,
+      status: 'pending'
+    });
 
-        const appointment = new Appointment({
-            doctorId,
-            patientId,
-            date,
-            reason
-        });
-
-        await appointment.save();
-
-        res.status(201).json({ message: "✅ Rendez-vous enregistré avec succès !" });
-    } catch (error) {
-        console.error("❌ Erreur création rendez-vous :", error);
-        res.status(500).json({ message: "Erreur serveur lors de la création du rendez-vous." });
-    }
+    await appointment.save();
+    res.status(201).json({ message: 'Rendez-vous enregistré' });
+  } catch (error) {
+    console.error('Erreur création rdv:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
 });
-app.get('/api/patient/analyses/:patientId', async (req, res) => {
-    const { patientId } = req.params;
-    try {
-      const results = await db.collection('labresults')
-        .find({ patientId: new mongoose.Types.ObjectId(patientId) })
-        .sort({ createdAt: -1 })
-        .toArray();
-  
-      const formatted = results.map(a => ({
-        _id: a._id,
-        laboratoire: a.labId?.toString(), // ou `populate` si besoin du nom
-        date: a.date || a.createdAt,
-        resultat: a.description || a.results || '',
-        fileUrl: a.fileUrl
-      }));
-  
-      res.json(formatted);
-    } catch (err) {
-      console.error("❌ Erreur récupération analyses:", err);
-      res.status(500).json({ message: 'Erreur serveur' });
+// GET patient profile
+app.get('/api/patient/profile/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
     }
-  });
-  
-// Route pour télécharger un document médical
-app.post('/api/patient/medical-documents/:userId', uploadMedicalDoc.single('document'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ message: "Aucun fichier n'a été téléchargé." });
-        }
 
-        const { userId } = req.params;
-        const { description } = req.body;
-
-        let patient = await Patient.findOne({ userId });
-
-        if (!patient) {
-            patient = new Patient({
-                userId,
-                medicalDocuments: []
-            });
-        }
-
-        patient.medicalDocuments.push({
-            fileName: req.file.originalname,
-            fileType: req.file.mimetype,
-            filePath: req.file.path,
-            description
-        });
-
-        await patient.save();
-
-        res.status(200).json({
-            message: "Document médical téléchargé avec succès",
-            document: patient.medicalDocuments[patient.medicalDocuments.length - 1]
-        });
-
-    } catch (error) {
-        console.error('❌ Erreur upload document:', error);
-        res.status(500).json({ message: "Erreur lors du téléchargement du document." });
+    const isPatient = user.roles.some(role => role.toLowerCase() === 'patient');
+    if (!isPatient) {
+      return res.status(403).json({ message: 'Ce compte n’est pas un patient.' });
     }
+
+    const patientData = await Patient.findOne({ userId: id });
+    if (!patientData) {
+      return res.status(404).json({ message: 'Données patient non trouvées.' });
+    }
+
+    let age = null;
+    if (user.dateNaissance) {
+      const birthDate = new Date(user.dateNaissance);
+      const today = new Date();
+      age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+    }
+
+    res.status(200).json({
+      nom: user.nom,
+      prenom: user.prenom,
+      email: user.email,
+      dateNaissance: user.dateNaissance,
+      age,
+      taille: patientData.taille || null,
+      poids: patientData.poids || null,
+      bloodType: patientData.bloodType || '',
+      allergies: patientData.allergies || [],
+      emergencyContact: patientData.emergencyContact || {},
+      medicalHistory: patientData.medicalHistory || '',
+    });
+  } catch (err) {
+    console.error("❌ Erreur récupération profil patient :", err);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
 });
 
-// Route pour récupérer les documents médicaux
-app.get('/api/patient/medical-documents/:userId', async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const patient = await Patient.findOne({ userId });
 
-        if (!patient) {
-            return res.status(404).json({ message: "Patient non trouvé." });
+
+app.put('/api/patient/profile/:id', async (req, res) => {
+  try {
+    const { taille, poids, bloodType, allergies, emergencyContact } = req.body;
+
+    const updatedPatient = await Patient.findOneAndUpdate(
+      { userId: req.params.id },
+      {
+        $set: {
+          taille,
+          poids,
+          bloodType,
+          allergies,
+          emergencyContact
         }
+      },
+      { new: true, upsert: true }
+    );
 
-        res.status(200).json(patient.medicalDocuments);
-    } catch (error) {
-        console.error('❌ Erreur récupération documents:', error);
-        res.status(500).json({ message: "Erreur lors de la récupération des documents." });
-    }
+    res.json(updatedPatient);
+  } catch (err) {
+    console.error('Erreur mise à jour patient :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
 });
 
-// Route pour supprimer un document médical
-app.delete('/api/patient/medical-documents/:userId/:documentId', async (req, res) => {
-    try {
-        const { userId, documentId } = req.params;
-        const patient = await Patient.findOne({ userId });
+// PUT /api/notifications/:id => Marque une notification comme lue
+app.put('/api/notifications/:id', async (req, res) => {
+  try {
+    const notificationId = req.params.id;
 
-        if (!patient) {
-            return res.status(404).json({ message: "Patient non trouvé." });
-        }
+    const updatedNotification = await Notification.findByIdAndUpdate(
+      notificationId,
+      { read: true },
+      { new: true }
+    );
 
-        const document = patient.medicalDocuments.id(documentId);
-        if (!document) {
-            return res.status(404).json({ message: "Document non trouvé." });
-        }
-
-        // Supprimer le fichier physique
-        if (fs.existsSync(document.filePath)) {
-            fs.unlinkSync(document.filePath);
-        }
-
-        // Supprimer le document de la base de données
-        patient.medicalDocuments.pull(documentId);
-        await patient.save();
-
-        res.status(200).json({ message: "Document supprimé avec succès." });
-    } catch (error) {
-        console.error('❌ Erreur suppression document:', error);
-        res.status(500).json({ message: "Erreur lors de la suppression du document." });
+    if (!updatedNotification) {
+      return res.status(404).json({ message: 'Notification non trouvée.' });
     }
+
+    res.status(200).json(updatedNotification);
+  } catch (err) {
+    console.error('Erreur PUT /notifications/:id :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
 });
+
+
+// GET medical documents
+app.get('/api/patient/medical-documents/:id', async (req, res) => {
+  try {
+    const docs = await MedicalDocument.find({ patientId: req.params.id });
+    res.json(docs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET lab results
+app.get('/api/patient/analyses/:id', async (req, res) => {
+  try {
+    const results = await LabResult.find({ patientId: req.params.id });
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPLOAD medical document
+app.post('/api/patient/medical-documents', uploadMedical.single('file'), async (req, res) => {
+  try {
+    const { doctorId, patientId, appointmentId, description } = req.body;
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+
+    const newReport = new MedicalReport({
+      doctorId,
+      patientId,
+      appointmentId,
+      description,
+      fileUrl: req.file.path
+    });
+
+    await newReport.save();
+    res.status(201).json({ message: 'Rapport médical enregistré', report: newReport });
+  } catch (err) {
+    console.error('Erreur enregistrement rapport médical :', err);
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// DELETE medical document
+app.delete('/api/patient/delete-report/:id', async (req, res) => {
+  try {
+    const doc = await MedicalDocument.findByIdAndDelete(req.params.id);
+    if (doc && fs.existsSync('.' + doc.fileUrl)) fs.unlinkSync('.' + doc.fileUrl);
+    res.sendStatus(204);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPLOAD lab result
+app.post('/api/patient/upload-analysis', uploadLabResult.single('file'), async (req, res) => {
+  try {
+    const { patientId, authorName, testType } = req.body;
+    const newResult = await LabResult.create({
+      patientId,
+      authorName,
+      testType,
+      fileName: req.file.filename,
+      fileUrl: `/uploads/lab-results/${req.file.filename}`,
+      date: new Date()
+    });
+    res.status(201).json(newResult);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE lab result
+app.delete('/api/patient/delete-analysis/:id', async (req, res) => {
+  try {
+    const result = await LabResult.findByIdAndDelete(req.params.id);
+    if (result && fs.existsSync('.' + result.fileUrl)) fs.unlinkSync('.' + result.fileUrl);
+    res.sendStatus(204);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // Envoyer un message (patient -> médecin ou médecin -> patient)
+// GET: Conversations du médecin avec patients ou labos
+app.get('/api/messages/conversations/:doctorId', async (req, res) => {
+  const { doctorId } = req.params;
+
+  try {
+    // Récupère tous les messages envoyés ou reçus par le médecin
+    const messages = await mongoose.model('Message').find({
+      $or: [
+        { senderId: doctorId },
+        { receiverId: doctorId }
+      ]
+    });
+
+    // Trouve tous les ID uniques des autres utilisateurs
+    const userIds = Array.from(
+      new Set(
+        messages.map(m => m.senderId.toString() === doctorId ? m.receiverId.toString() : m.senderId.toString())
+      )
+    );
+
+    // Récupère les infos utilisateurs pour affichage
+    const users = await mongoose.model('User').find({
+      _id: { $in: userIds }
+    }).select('nom prenom roles');
+
+    res.json(users);
+  } catch (err) {
+    console.error('Erreur chargement des conversations:', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+app.get('/api/messages/:appointmentId', async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { userId } = req.query;
+    
+    console.log("🔍 Recherche des messages pour le rendez-vous:", appointmentId);
+    
+    // Récupérer les messages avec les informations des utilisateurs
+    const messages = await Message.find({ appointmentId })
+      .populate('senderId', 'nom prenom email')
+      .populate('receiverId', 'nom prenom email')
+      .sort({ createdAt: 1 });
+    
+    console.log(`✅ ${messages.length} messages trouvés`);
+    
+    // Marquer les messages comme lus si userId est fourni
+    if (userId) {
+      console.log("📝 Marquage des messages comme lus pour l'utilisateur:", userId);
+      await Message.updateMany(
+        {
+          appointmentId,
+          receiverId: userId,
+          isRead: false
+        },
+        { $set: { isRead: true } }
+      );
+    }
+    
+    // Formater les messages pour l'affichage
+    const formattedMessages = messages.map(msg => ({
+      _id: msg._id,
+      content: msg.content,
+      senderId: msg.senderId._id,
+      senderName: `${msg.senderId.nom} ${msg.senderId.prenom}`,
+      receiverId: msg.receiverId._id,
+      receiverName: `${msg.receiverId.nom} ${msg.receiverId.prenom}`,
+      createdAt: msg.createdAt,
+      isRead: msg.isRead
+    }));
+    res.status(200).json(formattedMessages);
+  } catch (error) {
+    console.error('❌ Erreur récupération messages:', error);
+    res.status(500).json({ 
+      message: 'Erreur serveur.',
+      error: error.message 
+    });
+  }
+});
 
 
 app.get('/api/messages/conversations/:userId', async (req, res) => {
-    const { userId } = req.params;
-  
+  try {
+    const userId = req.params.userId;
+
+    const messages = await Message.find({
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    }).sort({ createdAt: -1 }).lean();
+
+    const userIdsSet = new Set();
+    messages.forEach((msg) => {
+      if (msg.senderId.toString() !== userId) userIdsSet.add(msg.senderId.toString());
+      if (msg.receiverId.toString() !== userId) userIdsSet.add(msg.receiverId.toString());
+    });
+
+    const userIds = [...userIdsSet];
+    const users = await mongoose.model('User').find({ _id: { $in: userIds } })
+      .select('_id nom prenom roles')
+      .lean();
+
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u._id.toString()] = u;
+    });
+
+    const conversationsMap = new Map();
+
+    messages.forEach((msg) => {
+      const otherId = msg.senderId.toString() === userId
+        ? msg.receiverId.toString()
+        : msg.senderId.toString();
+
+      if (!conversationsMap.has(otherId)) {
+        const user = userMap[otherId];
+        conversationsMap.set(otherId, {
+          _id: otherId,
+          userId: otherId,
+          userName: user ? `${user.nom} ${user.prenom}` : 'Utilisateur inconnu',
+          role: user?.roles?.[0] || '',
+          lastMessage: msg.content,
+          lastMessageAt: msg.createdAt,
+          read: msg.isRead,
+        });
+      }
+    });
+
+    res.status(200).json([...conversationsMap.values()]);
+  } catch (err) {
+    console.error('❌ Erreur conversation fallback:', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+
+
+  // Récupérer tous les messages entre deux utilisateurs (par exemple médecin et patient ou labo)
+  app.get('/api/messages/conversations/:userId', async (req, res) => {
     try {
-      // 1. Récupérer tous les messages (envoyés ou reçus) liés à ce patient
+      const userId = req.params.userId;
+  
       const messages = await Message.find({
         $or: [{ senderId: userId }, { receiverId: userId }],
-        appointmentId: { $ne: null }
-      }).sort({ createdAt: -1 });
+      })
+        .populate('senderId', 'nom prenom roles')
+        .populate('receiverId', 'nom prenom roles')
+        .sort({ createdAt: -1 })
+        .lean(); // ✅ doit être après les populate
   
-      // 2. Récupérer les rendez-vous confirmés
-      const appointmentIds = [...new Set(messages.map(m => m.appointmentId.toString()))];
-      const confirmedAppointments = await Appointment.find({
-        _id: { $in: appointmentIds },
-        status: 'confirmed'
-      });
+      const conversationsMap = new Map();
   
-      const confirmedSet = new Set(confirmedAppointments.map(a => a._id.toString()));
+      messages.forEach((msg) => {
+        const isSender = msg.senderId._id.toString() === userId;
+        const otherUser = isSender ? msg.receiverId : msg.senderId;
+        const otherId = otherUser._id.toString();
   
-      // 3. Garder un seul message par rendez-vous confirmé
-      const latestMessagesMap = new Map(); // appointmentId => message
-      for (const msg of messages) {
-        const aptId = msg.appointmentId.toString();
-        if (confirmedSet.has(aptId) && !latestMessagesMap.has(aptId)) {
-          latestMessagesMap.set(aptId, msg);
+        if (!conversationsMap.has(otherId)) {
+          conversationsMap.set(otherId, {
+            _id: otherId,
+            userId: otherId,
+            userName: otherUser.nom && otherUser.prenom
+              ? `${otherUser.nom} ${otherUser.prenom}`
+              : 'Utilisateur inconnu',
+            role: otherUser.roles?.[0] || '',
+            lastMessage: msg.content,
+            lastMessageAt: msg.createdAt,
+            read: isSender ? true : msg.isRead,
+          });
         }
-      }
-  
-      // 4. Trouver les IDs des autres utilisateurs dans les messages
-      const otherUserIds = Array.from(latestMessagesMap.values()).map(msg =>
-        msg.senderId.toString() === userId ? msg.receiverId.toString() : msg.senderId.toString()
-      );
-  
-      // 5. Récupérer les données des utilisateurs (depuis le modèle User déjà dans server.js)
-      const users = await User.find({ _id: { $in: otherUserIds } });
-  
-      // 6. Formater les résultats
-      const conversations = Array.from(latestMessagesMap.values()).map(msg => {
-        const otherUserId = msg.senderId.toString() === userId ? msg.receiverId.toString() : msg.senderId.toString();
-        const otherUser = users.find(u => u._id.toString() === otherUserId);
-  
-        return {
-          _id: msg._id,
-          appointmentId: msg.appointmentId,
-          otherUserId,
-          otherUserName: otherUser ? `${otherUser.nom} ${otherUser.prenom}` : 'Utilisateur inconnu',
-          otherUserRole: otherUser?.roles?.[0] || 'unknown',
-          lastMessage: msg.content, // ✅ champ correct du modèle Message
-          lastMessageAt: msg.createdAt
-        };
       });
   
-      res.json(conversations);
+      res.status(200).json(Array.from(conversationsMap.values()));
     } catch (err) {
-      console.error('Erreur route conversations:', err);
-      res.status(500).json({ message: 'Erreur serveur' });
-    }
-  });
-  
-
-// Récupérer les messages pour un rendez-vous donné (patient et médecin)
-app.get('/api/messages/:appointmentId', async (req, res) => {
-    try {
-      const { appointmentId } = req.params;
-  
-      // 🔎 On récupère tous les messages liés à ce rendez-vous, triés du plus ancien au plus récent
-      const messages = await Message.find({ appointmentId }).sort({ createdAt: 1 });
-  
-      res.status(200).json(messages);
-    } catch (error) {
-      console.error('❌ Erreur récupération messages:', error);
+      console.error('❌ Erreur conversation:', err);
       res.status(500).json({ message: 'Erreur serveur.' });
     }
   });
   
+
+// 🔁 POST /api/messages
 app.post('/api/messages', async (req, res) => {
-    const { senderId, receiverId, appointmentId, content } = req.body;
-  
-    // 1. Vérification des champs requis
-    if (!senderId || !receiverId || !appointmentId || !content?.trim()) {
-      return res.status(400).json({ message: 'Champs requis manquants ou invalides.' });
-    }
-  
-    try {
-      // 2. Vérifie si l’appointment existe et est confirmé
-      const appointment = await Appointment.findById(appointmentId);
+  const { senderId, receiverId, content, appointmentId } = req.body;
+
+  // Vérifie les champs requis
+  if (!senderId || !receiverId || !content?.trim()) {
+    return res.status(400).json({ message: 'Champs requis manquants.' });
+  }
+
+  try {
+    // Si appointmentId est fourni, on vérifie qu'il est valide et confirmé
+    if (appointmentId) {
+      const appointment = await mongoose.model('Appointment').findById(appointmentId);
       if (!appointment) {
         return res.status(404).json({ message: "Rendez-vous introuvable." });
       }
-  
       if (appointment.status !== 'confirmed') {
-        return res.status(403).json({ message: "Le rendez-vous n'est pas encore confirmé." });
+        return res.status(403).json({ message: "Le rendez-vous n'est pas confirmé." });
       }
-  
-      // 3. Création et sauvegarde du message
-      const newMessage = new Message({
-        senderId,
-        receiverId,
-        appointmentId,
-        content
-      });
-  
-      await newMessage.save();
-      res.status(201).json({ message: 'Message envoyé avec succès.' });
-    } catch (err) {
-      console.error('Erreur création message :', err);
-      res.status(500).json({ message: 'Erreur serveur lors de l’envoi du message.' });
     }
-  });
+
+    // Création du message
+    const newMessage = new (mongoose.model('Message'))({
+      senderId,
+      receiverId,
+      content,
+      appointmentId: appointmentId || undefined // facultatif
+    });
+
+    await newMessage.save();
+
+    res.status(201).json(newMessage);
+  } catch (err) {
+    console.error('❌ Erreur enregistrement message :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+
+
+
 
 // Récupérer les rendez-vous d'un patient
 app.get('/api/appointments', async (req, res) => {
@@ -1713,47 +1936,97 @@ app.get('/api/lab-appointments/patient/:patientId', async(req, res) => {
 
 // Route pour récupérer les rendez-vous d'un laboratoire
 app.get('/api/lab-appointments/lab/:labId', async(req, res) => {
-    try {
-        const { labId } = req.params;
-        console.log('Recherche RDV pour labId:', labId);
-        
-        // Récupérer les rendez-vous avec les informations du patient
-        const appointments = await Appointment.find({ 
-            doctorId: labId,
-            type: 'laboratory'
-        }).populate({
-            path: 'patientId',
-            model: 'User',
-            select: 'nom prenom email telephone'
-        }).sort({ date: -1 });
+  try {
+      const { labId } = req.params;
+      console.log('Recherche RDV pour labId:', labId);
+      
+      // Récupérer les rendez-vous avec les informations du patient
+      const appointments = await Appointment.find({ 
+          doctorId: labId,
+          type: 'laboratory'
+      }).populate({
+          path: 'patientId',
+          model: 'User',
+          select: 'nom prenom email telephone'
+      }).sort({ date: -1 });
 
-        console.log('RDV trouvés:', appointments.length);
-        
-        // Formater les données en s'assurant que toutes les informations du patient sont présentes
-        const formattedAppointments = appointments.map(apt => {
-            const patientData = apt.patientId || {};
-            return {
-                _id: apt._id,
-                date: apt.date,
-                reason: apt.reason,
-                status: apt.status,
-                patient: {
-                    _id: patientData._id || '',
-                    nom: patientData.nom || 'Non renseigné',
-                    prenom: patientData.prenom || 'Non renseigné',
-                    email: patientData.email || 'Non renseigné',
-                    telephone: patientData.telephone || 'Non renseigné'
-                },
-                type: apt.type
-            };
-        });
+      console.log('RDV trouvés:', appointments.length);
+      
+      // Formater les données en s'assurant que toutes les informations du patient sont présentes
+      const formattedAppointments = appointments.map(apt => {
+          const patientData = apt.patientId || {};
+          return {
+              _id: apt._id,
+              date: apt.date,
+              reason: apt.reason,
+              status: apt.status,
+              patient: {
+                  _id: patientData._id || '',
+                  nom: patientData.nom || 'Non renseigné',
+                  prenom: patientData.prenom || 'Non renseigné',
+                  email: patientData.email || 'Non renseigné',
+                  telephone: patientData.telephone || 'Non renseigné'
+              },
+              type: apt.type
+          };
+      });
 
-        res.status(200).json(formattedAppointments);
-    } catch (error) {
-        console.error("❌ Erreur récupération rendez-vous laboratoire:", error);
-        res.status(500).json({ message: "Erreur serveur." });
-    }
+      res.status(200).json(formattedAppointments);
+  } catch (error) {
+      console.error("❌ Erreur récupération rendez-vous laboratoire:", error);
+      res.status(500).json({ message: "Erreur serveur." });
+  }
 });
+
+app.get('/api/patients/cin/:cin', async (req, res) => {
+  try {
+    const { cin } = req.params;
+    const patient = await User.findOne({
+      cin,
+      roles: { $in: ['Patient'] } // ✅ tableau contenant "Patient"
+    });
+
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient introuvable' });
+    }
+
+    res.json(patient);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ambulance/report', async (req, res) => {
+  try {
+    const {
+      ambulancierId,
+      patientInfo,
+      missionDetails,
+      medicalInfo,
+      urgencyLevel,
+      hospitalId,
+      notes,
+    } = req.body;
+
+    const newReport = new AmbulanceReport({
+      ambulancierId: new mongoose.Types.ObjectId(ambulancierId),
+      patientInfo,
+      missionDetails,
+      medicalInfo,
+      urgencyLevel,
+      hospitalId: new mongoose.Types.ObjectId(hospitalId),
+      notes,
+      status: 'submitted',
+      createdAt: new Date(),
+    });
+
+    await newReport.save();
+    res.status(201).json({ message: 'Rapport enregistré' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // Route pour mettre à jour le statut d'un rendez-vous laboratoire
 app.put('/api/lab-appointments/:appointmentId/status', async(req, res) => {
@@ -1992,6 +2265,35 @@ app.get('/api/hospital-appointments/hospital/:hospitalId', async (req, res) => {
         res.status(500).json({ message: "Erreur serveur." });
     }
 });
+// Express route pour planifier un rendez-vous
+app.put('/api/appointments/:id/planning', async (req, res) => {
+  try {
+    const { appointmentDate, requiredDocuments, status } = req.body;
+
+    const result = await mongoose.connection
+      .collection('appointments')
+      .updateOne(
+        { _id: new mongoose.Types.ObjectId(req.params.id) },
+        {
+          $set: {
+            date: new Date(appointmentDate),
+            documents: requiredDocuments,
+            status: status || 'confirmed',
+          },
+        }
+      );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ message: "Aucun rendez-vous mis à jour" });
+    }
+
+    res.status(200).json({ message: "Rendez-vous planifié avec succès" });
+  } catch (err) {
+    console.error("Erreur planning:", err);
+    res.status(500).json({ message: "Erreur serveur lors du planning" });
+  }
+});
+
 
 // Route pour mettre à jour le statut d'un rendez-vous
 app.put('/api/hospital-appointments/:appointmentId/status', async (req, res) => {
@@ -2403,6 +2705,6 @@ app.get('/hopitaux', async (req, res) => {
   });
   
 // Lancer le serveur
-app.listen(5001, () => {
-    console.log('🚀 Server is running at http://localhost:5001');
+app.listen(5001, '0.0.0.0', () => {
+  console.log('Server running on http://192.168.93.83:5001');
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,9 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
-
-const API_BASE_URL = 'http://192.168.96.83';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { useRouter } from 'expo-router';
 
 interface Appointment {
   _id: string;
@@ -25,85 +26,89 @@ interface Appointment {
   };
 }
 
-export default function CabinetDashboard() {
+const API_BASE_URL = 'http://192.168.93.83:5001';
+
+const CabinetDashboard: React.FC = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]);
   const [cabinetInfo, setCabinetInfo] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showPlanningForm, setShowPlanningForm] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [appointmentDate, setAppointmentDate] = useState('');
   const [requiredDocuments, setRequiredDocuments] = useState('');
-  const [showPlanningForm, setShowPlanningForm] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const cabinetId = 'YOUR_USER_ID'; // 🔁 à remplacer dynamiquement avec SecureStore ou AsyncStorage
+  const router = useRouter();
 
   useEffect(() => {
-    fetchCabinetInfo();
+    const fetchData = async () => {
+      const cabinetId = await AsyncStorage.getItem('userId');
+      if (cabinetId) fetchCabinetInfo(cabinetId);
+    };
+    fetchData();
   }, []);
 
-  const fetchCabinetInfo = async () => {
+  const fetchCabinetInfo = async (cabinetId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${cabinetId}`);
-      const data = await res.json();
-      setCabinetInfo(data);
-      if (data.linkedDoctorId) {
-        fetchAppointments(data.linkedDoctorId);
+      const res = await axios.get(`${API_BASE_URL}/api/users/${cabinetId}`);
+      const userData = res.data;
+
+      if (!userData?.roles?.includes('Cabinet')) {
+        setError("Ce compte n'est pas un cabinet.");
+        setLoading(false);
+        return;
+      }
+
+      setCabinetInfo(userData);
+      if (userData.linkedDoctorId) {
+        fetchAppointments(userData.linkedDoctorId);
       } else {
-        setError('Aucun médecin lié à ce cabinet.');
+        setError('Aucun médecin lié à ce cabinet');
         setLoading(false);
       }
     } catch (err) {
-      setError('Erreur lors de la récupération du cabinet.');
+      setError('Erreur chargement cabinet');
       setLoading(false);
     }
   };
 
   const fetchAppointments = async (doctorId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/doctor/appointments/${doctorId}`);
-      const data = await res.json();
+      const res = await axios.get(`${API_BASE_URL}/api/doctor/appointments/${doctorId}`);
+      const data = res.data;
       setAppointments(data.filter((a: Appointment) => a.status === 'confirmed'));
       setPendingAppointments(data.filter((a: Appointment) => a.status === 'pending'));
       setLoading(false);
     } catch (err) {
-      setError('Erreur lors de la récupération des rendez-vous.');
+      setError('Erreur chargement rendez-vous');
       setLoading(false);
     }
   };
 
   const handleStatusChange = async (id: string, status: string) => {
     try {
-      await fetch(`${API_BASE_URL}/api/appointments/${id}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
+      await axios.put(`${API_BASE_URL}/api/appointments/${id}/status`, { status });
       if (cabinetInfo?.linkedDoctorId) fetchAppointments(cabinetInfo.linkedDoctorId);
-    } catch (err) {
-      setError('Erreur mise à jour statut.');
+    } catch {
+      setError('Erreur mise à jour statut');
     }
   };
 
   const handlePlanningSubmit = async () => {
     if (!selectedAppointment) return;
     try {
-      await fetch(`${API_BASE_URL}/api/appointments/${selectedAppointment._id}/planning`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          appointmentDate,
-          requiredDocuments,
-          status: 'confirmed',
-        }),
+      await axios.put(`${API_BASE_URL}/api/appointments/${selectedAppointment._id}/planning`, {
+        appointmentDate,
+        requiredDocuments,
+        status: 'confirmed',
       });
       setShowPlanningForm(false);
       setSelectedAppointment(null);
       setAppointmentDate('');
       setRequiredDocuments('');
       if (cabinetInfo?.linkedDoctorId) fetchAppointments(cabinetInfo.linkedDoctorId);
-    } catch (err) {
-      setError('Erreur planification rendez-vous.');
+    } catch {
+      setError('Erreur planification rendez-vous');
     }
   };
 
@@ -115,6 +120,10 @@ export default function CabinetDashboard() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+  const handleLogout = async () => {
+    await AsyncStorage.clear();
+    router.replace('/login');
   };
 
   if (loading) {
@@ -128,13 +137,27 @@ export default function CabinetDashboard() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>👨‍⚕️ Tableau de bord du Cabinet</Text>
+      <Text style={styles.title}>🏥 Tableau de bord du Cabinet</Text>
+      <View style={{ alignItems: 'flex-end', marginBottom: 10 }}>
+  <TouchableOpacity
+    onPress={handleLogout}
+    style={{
+      backgroundColor: '#e63946',
+      padding: 10,
+      borderRadius: 8,
+    }}
+  >
+    <Text style={{ color: 'white', fontWeight: 'bold' }}>🔒 Se déconnecter</Text>
+  </TouchableOpacity>
+</View>
+
+      {error && <Text style={{ color: 'red' }}>{error}</Text>}
 
       {cabinetInfo && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>📍 {cabinetInfo.nom}</Text>
-          <Text>🏥 Spécialité : {cabinetInfo.specialty}</Text>
-          <Text>📌 Adresse : {cabinetInfo.adresse}</Text>
+          <Text>Spécialité : {cabinetInfo.specialty}</Text>
+          <Text>Adresse : {cabinetInfo.adresse}</Text>
         </View>
       )}
 
@@ -167,6 +190,8 @@ export default function CabinetDashboard() {
               >
                 <Text style={styles.btnText}>Refuser</Text>
               </TouchableOpacity>
+              
+
             </View>
           </View>
         ))
@@ -226,7 +251,7 @@ export default function CabinetDashboard() {
       </Modal>
     </ScrollView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 60 },
@@ -280,3 +305,5 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 });
+
+export default CabinetDashboard;

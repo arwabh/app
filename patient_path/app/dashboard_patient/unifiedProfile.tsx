@@ -1,18 +1,49 @@
-import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, TextInput, Alert } from 'react-native';
-import CalendarPicker from 'react-native-calendar-picker';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  StyleSheet,
+  ScrollView,
+  Modal,
+  Platform,
+} from 'react-native';
 import axios from 'axios';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.93.83:5001';
 
-const UnifiedProfile = ({ route, navigation }) => {
-  const { user, type } = route.params; // "user" = docteur/labo/hôpital, "type" = 'medical' ou 'laboratory'
-  const [selectedDate, setSelectedDate] = useState(null);
+const specialites = [
+  'Cardiologie', 'Dermatologie', 'Gynécologie', 'Neurologie', 'Pédiatrie',
+  'Psychiatrie', 'Radiologie', 'Urologie', 'Anesthésie', 'Médecine Générale'
+];
+
+export default function UnifiedProfile() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams();
+  const [user, setUser] = useState<any>(null);
   const [reason, setReason] = useState('');
-  const patientId = localStorage.getItem('userId'); // remplace par SecureStore si nécessaire
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedSpecialty, setSelectedSpecialty] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+
+  useEffect(() => {
+    if (id) {
+      axios.get(`${API_BASE_URL}/api/users/${id}`)
+        .then(res => setUser(res.data))
+        .catch(err => console.log(err));
+    }
+  }, [id]);
 
   const handleSubmit = async () => {
-    if (!selectedDate || !reason.trim()) {
+    const patientId = await AsyncStorage.getItem('userId');
+    if (!selectedDate || (!reason && !selectedSpecialty) || !patientId || !user?._id) {
       Alert.alert('Veuillez remplir tous les champs');
       return;
     }
@@ -21,77 +52,200 @@ const UnifiedProfile = ({ route, navigation }) => {
       await axios.post(`${API_BASE_URL}/api/appointments`, {
         patientId,
         doctorId: user._id,
-        reason,
+        reason: user.roles.includes('Hospital') ? selectedSpecialty : reason,
         date: selectedDate,
-        type
+        type: 'medical',
       });
 
-      Alert.alert('✅ Rendez-vous enregistré !');
-      navigation.navigate('dashboard_patient/home');
+      // ✅ Affiche le modal de succès
+      setModalVisible(true);
+
+      // ✅ Redirige vers le tableau de bord après 3 secondes
+      setTimeout(() => {
+        setModalVisible(false);
+        router.push('/dashboard_patient/home');
+      }, 3000);
     } catch (error) {
-      Alert.alert('❌ Erreur lors de la prise de rendez-vous');
+      console.error(error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la prise de rendez-vous.');
     }
   };
 
-  return (
-    <View style={{ flex: 1, padding: 20, backgroundColor: '#f0f4ff' }}>
-      <View style={{ alignItems: 'center' }}>
-        <Image
-          source={{
-            uri:
-              user.photo && user.roles.includes('Doctor')
-                ? `${API_BASE_URL}/${user.photo}`
-                : 'https://cdn-icons-png.flaticon.com/512/9131/9131529.png',
-          }}
-          style={{ width: 100, height: 100, borderRadius: 50 }}
-        />
-        <Text style={{ fontSize: 20, fontWeight: 'bold', marginTop: 10 }}>
-          {user.nom} {user.prenom}
-        </Text>
+  if (!user) return <Text style={{ padding: 20 }}>Chargement...</Text>;
 
-        {user.specialty && (
-          <Text style={{ fontSize: 16, color: '#888' }}>{user.specialty}</Text>
-        )}
-        <Text style={{ fontSize: 14, color: '#444', marginTop: 4 }}>{user.adresse}</Text>
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.card}>
+        <Image
+          source={{ uri: user.photo ? `${API_BASE_URL}/${user.photo}` : 'https://cdn-icons-png.flaticon.com/512/9131/9131529.png' }}
+          style={styles.avatar}
+        />
+        <Text style={styles.name}>{user.nom} {user.prenom}</Text>
+        {user.specialite && <Text style={styles.specialty}>{user.specialite}</Text>}
+        <Text style={styles.address}>📍 {user.adresse}</Text>
       </View>
 
-      <Text style={{ fontWeight: 'bold', marginVertical: 15 }}>Choisissez une date :</Text>
-      <CalendarPicker
-        onDateChange={(date) => setSelectedDate(date)}
-        minDate={new Date()}
-        selectedDayColor="#3c82f6"
-      />
+      <View style={styles.form}>
+        <Text style={styles.label}>📅 Choisissez une date :</Text>
+        <View style={styles.calendarBox}>
+          <DatePicker
+            selected={selectedDate}
+            onChange={(date) => date && setSelectedDate(date)}
+            dateFormat="P"
+            minDate={new Date()}
+            placeholderText="Choisir date"
+            className="form-control"
+          />
+        </View>
 
-      <TextInput
-        placeholder="Motif du rendez-vous"
-        value={reason}
-        onChangeText={setReason}
-        multiline
-        style={{
-          borderWidth: 1,
-          borderColor: '#ccc',
-          borderRadius: 5,
-          padding: 10,
-          marginTop: 20,
-          minHeight: 80,
-          backgroundColor: '#fff'
-        }}
-      />
+        {user.roles.includes('Hospital') ? (
+          <>
+            <Text style={styles.label}>🏥 Spécialité :</Text>
+            <select
+              style={styles.select}
+              value={selectedSpecialty}
+              onChange={(e) => setSelectedSpecialty(e.target.value)}
+            >
+              <option value="">-- Choisir une spécialité --</option>
+              {specialites.map((spec, idx) => (
+                <option key={idx} value={spec}>{spec}</option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <>
+            <Text style={styles.label}>📝 Motif :</Text>
+            <TextInput
+              style={styles.textarea}
+              placeholder="Motif du rendez-vous"
+              multiline
+              value={reason}
+              onChangeText={setReason}
+            />
+          </>
+        )}
 
-      <TouchableOpacity
-        onPress={handleSubmit}
-        style={{
-          backgroundColor: '#3c82f6',
-          padding: 12,
-          borderRadius: 8,
-          alignItems: 'center',
-          marginTop: 20
-        }}
+        <TouchableOpacity style={styles.button} onPress={handleSubmit}>
+          <Text style={styles.buttonText}>📅 Prendre rendez-vous</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ✅ Modal de confirmation */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
       >
-        <Text style={{ color: 'white', fontWeight: 'bold' }}>Prendre rendez-vous</Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: 'green', textAlign: 'center' }}>
+              ✅ Rendez-vous pris avec succès
+            </Text>
+            <Text style={{ marginTop: 8, textAlign: 'center' }}>
+              En attente de confirmation...
+            </Text>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
-};
+}
 
-export default UnifiedProfile;
+const styles = StyleSheet.create({
+  container: {
+    padding: 20,
+    backgroundColor: '#e9f1ff',
+    flexGrow: 1,
+  },
+  card: {
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 10,
+  },
+  name: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1e3a8a',
+  },
+  specialty: {
+    color: '#666',
+    marginVertical: 4,
+  },
+  address: {
+    color: '#444',
+  },
+  form: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  label: {
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  calendarBox: {
+    backgroundColor: '#f1f5f9',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  textarea: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 12,
+    borderRadius: 6,
+    height: 100,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+    backgroundColor: '#fff',
+  },
+  select: {
+    width: '100%',
+    padding: 10,
+    borderRadius: 6,
+    borderColor: '#ccc',
+    marginBottom: 16,
+  },
+  button: {
+    backgroundColor: '#3b82f6',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 12,
+    maxWidth: 300,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+});

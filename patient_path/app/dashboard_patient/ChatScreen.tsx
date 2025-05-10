@@ -1,189 +1,172 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet
-} from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import axios from 'axios';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.93.83:5001';
 
-type Message = {
-  _id?: string;
-  senderId: string;
-  receiverId: string;
-  appointmentId: string;
-  content: string;
-  createdAt?: string;
-};
+interface Appointment {
+  doctorId: string;
+  date: string;
+  status: string;
+}
 
-const ChatScreen = () => {
-  const { appointmentId, receiverId, receiverName, bot } = useLocalSearchParams();
-  const userId = localStorage.getItem('userId');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState('');
-  const scrollViewRef = useRef<ScrollView | null>(null);
+interface UserInfo {
+  _id: string;
+  nom: string;
+  prenom: string;
+  adresse: string;
+  photo?: string;
+  roles: string[] | string;
+}
+
+export default function HomeScreen() {
+  const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([]);
+  const [userInfos, setUserInfos] = useState<Record<string, UserInfo>>({});
+  const [confirmedProviders, setConfirmedProviders] = useState<UserInfo[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
-    if (bot === 'true') {
-      // Message fictif pour le chatbot
-      setMessages([
-        {
-          senderId: 'bot',
-          receiverId: userId || '',
-          appointmentId: 'chatbot',
-          content: 'Bonjour 👋 Je suis votre assistant médical. Décrivez-moi vos symptômes.',
-        }
-      ]);
-    } else {
-      fetchMessages();
-    }
-  }, [appointmentId]);
+    const fetchAppointments = async () => {
+      try {
+        const id = await AsyncStorage.getItem('userId');
+        if (!id) return;
 
-  const fetchMessages = async () => {
-    try {
-      const res = await axios.get<Message[]>(
-        `${API_BASE_URL}/api/messages/${appointmentId}?userId=${userId}`
-      );
-      const sorted = res.data.sort((a, b) =>
-        new Date(a.createdAt || '').getTime() - new Date(b.createdAt || '').getTime()
-      );
-      setMessages(sorted);
-    } catch (error) {
-      console.error('Erreur chargement messages', error);
-    }
+        const today = new Date();
+        const res = await axios.get(`${API_BASE_URL}/api/patient/appointments/${id}`);
+        const futureAppointments = res.data.filter((a: Appointment) => new Date(a.date) >= today);
+        setUpcomingAppointments(futureAppointments.slice(0, 3));
+
+        const confirmed = res.data.filter((a: Appointment) => a.status === 'confirmed');
+
+        const uniqueIds: string[] = Array.from(
+          new Set(confirmed.map((a: Appointment) => a.doctorId))
+        );
+
+        const userMap: Record<string, UserInfo> = {};
+
+        await Promise.all(
+          uniqueIds.map(async (userId: string) => {
+            try {
+              const response = await axios.get(`${API_BASE_URL}/api/users/${userId}`);
+              userMap[userId] = response.data;
+            } catch (err) {
+              console.warn(`Utilisateur non trouvé: ${userId}`);
+            }
+          })
+        );
+
+        setUserInfos(userMap);
+        setConfirmedProviders(Object.values(userMap));
+      } catch (err) {
+        console.error('Erreur lors du chargement des rendez-vous :', err);
+      }
+    };
+
+    fetchAppointments();
+  }, []);
+
+  const normalizeRoles = (roles: string[] | string): string[] => {
+    if (Array.isArray(roles)) return roles;
+    if (typeof roles === 'string') return [roles];
+    return [];
   };
 
-  const handleSend = async () => {
-    if (!newMessage.trim()) return;
+  const mapRoleLabel = (roles: string[]) => {
+    const lower = roles.map(r => r.toLowerCase());
 
-    if (bot === 'true') {
-      setMessages((prev) => [
-        ...prev,
-        {
-          senderId: userId || '',
-          receiverId: 'bot',
-          appointmentId: 'chatbot',
-          content: newMessage
-        },
-        {
-          senderId: 'bot',
-          receiverId: userId || '',
-          appointmentId: 'chatbot',
-          content: 'Merci, je vais analyser cela...'
-        }
-      ]);
-      setNewMessage('');
-    } else {
-      try {
-        await axios.post(`${API_BASE_URL}/api/messages`, {
-          senderId: userId,
-          receiverId,
-          appointmentId,
-          content: newMessage
-        });
-        setNewMessage('');
-        fetchMessages();
-      } catch (error) {
-        console.error('Erreur envoi message', error);
-      }
-    }
+    if (lower.includes('doctor')) return { icon: '🩺', label: 'Médecin', prefix: 'Dr.' };
+    if (lower.includes('labs')) return { icon: '🧪', label: 'Laboratoire', prefix: 'Laboratoire de :' };
+    if (lower.includes('hospital')) return { icon: '🏥', label: 'Hôpital', prefix: 'HÔPITAL' };
+    if (lower.includes('cabinet')) return { icon: '🏛️', label: 'Cabinet', prefix: 'Cabinet :' };
+    if (lower.includes('ambulancier')) return { icon: '🚑', label: 'Ambulancier', prefix: 'Ambulancier :' };
+
+    return { icon: '👤', label: 'Autre', prefix: '' };
+  };
+
+  const renderLabel = (provider: UserInfo) => {
+    const roles = normalizeRoles(provider.roles);
+    const roleData = mapRoleLabel(roles);
+
+    if (roleData.prefix === 'Dr.') return `Dr. ${provider.nom} ${provider.prenom}`;
+    if (roleData.prefix === 'HÔPITAL') return 'HÔPITAL';
+    return `${roleData.prefix} ${provider.nom} ${provider.prenom}`;
+  };
+
+  const renderRole = (provider: UserInfo) => {
+    const roles = normalizeRoles(provider.roles);
+    const roleData = mapRoleLabel(roles);
+    return `${roleData.icon} ${roleData.label}`;
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>
-        {bot === 'true' ? '🤖 Chatbot Médical' : `💬 ${receiverName}`}
+    <ScrollView contentContainerStyle={{ padding: 20 }}>
+      <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#009688', marginBottom: 10 }}>
+        📅 Prochains rendez-vous
       </Text>
 
-      <ScrollView
-        style={styles.messages}
-        ref={scrollViewRef}
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-      >
-        {messages.map((msg, index) => (
-          <View
-            key={index}
-            style={[
-              styles.messageBubble,
-              msg.senderId === userId ? styles.myMessage : styles.otherMessage,
-            ]}
-          >
-            <Text style={styles.messageText}>{msg.content}</Text>
+      {upcomingAppointments.map((appointment, index) => {
+        const provider = userInfos[appointment.doctorId];
+        if (!provider) return null;
+
+        const date = new Date(appointment.date).toLocaleDateString('fr-FR');
+        const label = renderLabel(provider);
+        const role = renderRole(provider);
+
+        return (
+          <View key={index} style={{
+            backgroundColor: '#e7fdfc',
+            padding: 12,
+            borderRadius: 12,
+            marginBottom: 10,
+            borderLeftColor: '#03C490',
+            borderLeftWidth: 4
+          }}>
+            <Text style={{ fontWeight: 'bold', color: '#006666', fontSize: 15 }}>
+              {label}
+            </Text>
+            <Text style={{ color: '#444', marginTop: 4 }}>
+              📍 {provider.adresse}
+            </Text>
+            <Text style={{ color: '#444', marginTop: 2 }}>
+              📅 Date : {date}
+            </Text>
+            <Text style={{ color: '#888', marginTop: 2, fontStyle: 'italic' }}>
+              {role}
+            </Text>
           </View>
-        ))}
-      </ScrollView>
+        );
+      })}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={newMessage}
-          onChangeText={setNewMessage}
-          placeholder="Votre message..."
-        />
-        <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
-          <Text style={styles.sendText}>Envoyer</Text>
+      <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#009688', marginTop: 30 }}>
+        👩‍⚕️ Mes professionnels
+      </Text>
+
+      {confirmedProviders.map((provider, idx) => (
+        <TouchableOpacity
+          key={idx}
+          style={{
+            backgroundColor: '#eefaf1',
+            padding: 12,
+            borderRadius: 12,
+            marginTop: 10,
+            borderLeftColor: '#4caf50',
+            borderLeftWidth: 4
+          }}
+          onPress={() => router.push(`/dashboard_patient/unifiedProfile?id=${provider._id}`)}
+        >
+          <Text style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: 15 }}>
+            {renderLabel(provider)}
+          </Text>
+          <Text style={{ color: '#444', marginTop: 4 }}>
+            📍 {provider.adresse}
+          </Text>
+          <Text style={{ color: '#888', marginTop: 2, fontStyle: 'italic' }}>
+            {renderRole(provider)}
+          </Text>
         </TouchableOpacity>
-      </View>
-    </View>
+      ))}
+    </ScrollView>
   );
-};
-
-export default ChatScreen;
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
-  header: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#038A91'
-  },
-  messages: { flex: 1 },
-  messageBubble: {
-    padding: 10,
-    borderRadius: 12,
-    marginVertical: 4,
-    maxWidth: '75%',
-  },
-  myMessage: {
-    backgroundColor: '#DCF8C5',
-    alignSelf: 'flex-end',
-  },
-  otherMessage: {
-    backgroundColor: '#E5E5E5',
-    alignSelf: 'flex-start',
-  },
-  messageText: { fontSize: 16 },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderColor: '#ddd',
-    paddingTop: 8,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    marginRight: 10,
-  },
-  sendButton: {
-    backgroundColor: '#03C490',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  sendText: {
-    color: '#fff',
-    fontWeight: 'bold'
-  }
-});
+}

@@ -14,7 +14,7 @@ import axios from 'axios';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.93.83:5001';
 
 const villes = [
   'Tunis', 'Ariana', 'Ben Arous', 'Manouba', 'Nabeul', 'Zaghouan', 'Bizerte', 'Béja',
@@ -41,8 +41,9 @@ const SearchDoctor = () => {
   const fetchResults = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/search`, {
-        params: { search, specialty, city, category }
-      });
+        params: { nom: search, specialty, city, category }
+
+              });
   
       const filtered = res.data.filter((user: any) => {
         const role = user.roles?.[0]?.toLowerCase();
@@ -71,6 +72,8 @@ const SearchDoctor = () => {
   const handleProfileClick = (userId: string) => {
     router.push(`/dashboard_patient/unifiedProfile?id=${userId}`);
   };
+  
+  
 
   return (
     <ScrollView style={styles.container}>
@@ -122,7 +125,7 @@ const SearchDoctor = () => {
         <TouchableOpacity
           key={item._id}
           onPress={() => handleProfileClick(item._id)}
-          style={styles.card}>
+          >
           {item.photo && (
             <Image
               source={{ uri: `${API_BASE_URL}/${item.photo}` }}

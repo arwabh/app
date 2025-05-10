@@ -4,7 +4,7 @@ import { DrawerContentScrollView, DrawerItem } from '@react-navigation/drawer';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export default function DoctorLayout() {
+export default function AmbulancierLayout() {
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -14,8 +14,8 @@ export default function DoctorLayout() {
 
   const menuItems = [
     { name: 'home', label: 'Accueil' },
-    { name: 'messages', label: 'Messages' },
-    { name: 'labs', label: 'Laboratoires' },
+    { name: 'vehicule', label: 'Véhicule' },
+    { name: 'position', label: 'Position' },
   ];
 
   return (
@@ -26,7 +26,7 @@ export default function DoctorLayout() {
             <DrawerItem
               key={item.name}
               label={item.label}
-              onPress={() => router.push(`/dashboard_doctor/${item.name}`)}
+              onPress={() => router.push(`/dashboard_ambulancier/${item.name}`)}
             />
           ))}
           <DrawerItem
@@ -38,11 +38,7 @@ export default function DoctorLayout() {
       )}
     >
       {menuItems.map((item) => (
-        <Drawer.Screen
-          key={item.name}
-          name={item.name}
-          options={{ title: item.label }}
-        />
+        <Drawer.Screen key={item.name} name={item.name} options={{ title: item.label }} />
       ))}
     </Drawer>
   );

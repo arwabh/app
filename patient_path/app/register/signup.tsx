@@ -1,83 +1,91 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { colors } from '../../theme';
-import RoundedInput from '../../components/RoundedInput';
-import { SelectList } from 'react-native-dropdown-select-list';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Image,
+  Alert,
+  ActivityIndicator
+} from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 
-const API_BASE_URL = "http://192.168.135.83:5001";
-
-const roles = [
-  { key: 'patient', value: 'patient' },
-  { key: 'medecin', value: 'medecin' },
-  { key: 'cabinet', value: 'cabinet' },
-  { key: 'hopital', value: 'hopital' },
-  { key: 'ambulancier', value: 'ambulancier' },
-  { key: 'laboratoire', value: 'laboratoire' },
+const roles = ['Patient', 'Doctor', 'Labs', 'Hospital', 'Cabinet', 'Ambulancier'];
+const regions = [
+  'Tunis', 'Ariana', 'Ben Arous', 'Manouba', 'Nabeul', 'Zaghouan', 'Bizerte',
+  'Béja', 'Jendouba', 'Le Kef', 'Siliana', 'Sousse', 'Monastir', 'Mahdia',
+  'Sfax', 'Kairouan', 'Kasserine', 'Sidi Bouzid', 'Gabès', 'Medenine',
+  'Tataouine', 'Gafsa', 'Tozeur', 'Kebili'
 ];
 
-export default function Signup() {
+const Signup = () => {
+  const [nom, setNom] = useState('');
+  const [prenom, setPrenom] = useState('');
+  const [dateNaissance, setDateNaissance] = useState<Date | undefined>();
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [email, setEmail] = useState('');
+  const [telephone, setTelephone] = useState('');
+  const [adresse, setAdresse] = useState('');
+  const [cin, setCin] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState('');
+  const [region, setRegion] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const router = useRouter();
 
-  const [form, setForm] = useState({
-    nom: '',
-    prenom: '',
-    email: '',
-    cin: '',
-    adresse: '',
-    telephone: '',
-    password: '',
-    role: '',
-  });
-
-  const handleChange = (key: string, value: string) => {
-    setForm({ ...form, [key]: value });
-  };
-
-  const validatePassword = (password: string) => {
-    return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
+  const isStrongPassword = (password: string) => {
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+    return regex.test(password);
   };
 
   const handleSubmit = async () => {
-    const { nom, prenom, email, cin, adresse, telephone, password, role } = form;
+    if (password !== confirmPassword) return Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
+    if (!isStrongPassword(password)) return Alert.alert("Erreur", "Mot de passe faible.");
+    if (!role || !region) return Alert.alert("Erreur", "Veuillez choisir un rôle et une région.");
 
-    if (!nom || !prenom || !email || !cin || !adresse || !telephone || !password || !role) {
-      return Alert.alert('Erreur', 'Tous les champs sont requis.');
-    }
-
-    if (cin.length !== 8 || !/^\d{8}$/.test(cin)) {
-      return Alert.alert('Erreur', 'CIN doit contenir exactement 8 chiffres.');
-    }
-
-    if (!/^\d+$/.test(telephone)) {
-      return Alert.alert('Erreur', 'Le téléphone doit être numérique.');
-    }
-
-    if (!validatePassword(password)) {
-      return Alert.alert(
-        'Mot de passe invalide',
-        '8 caractères minimum, 1 majuscule, 1 minuscule, 1 chiffre et 1 symbole.'
-      );
-    }
-
+    setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/signup`, {
+      const res = await fetch("http://192.168.93.83:5001/signup", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          nom,
+          prenom,
+          dateNaissance,
+          email: email.toLowerCase(),
+          telephone,
+          adresse,
+          cin,
+          password,
+          role,
+          region,
+        })
       });
 
       const data = await res.json();
-
       if (res.ok) {
-        const path = `/register/${form.role}`;
-        router.push(path as unknown as any );
+        Alert.alert("Succès", "Compte créé !");
+        switch (role) {
+          case 'Patient': router.push('/register/patient'); break;
+          case 'Doctor': router.push('/register/medecin'); break;
+          case 'Labs': router.push('/register/laboratoire'); break;
+          case 'Hospital': router.push('/dashboard_hopital'); break;
+          case 'Cabinet': router.push('/register/cabinet'); break;
+          case 'Ambulancier': router.push('/register/ambulancier'); break;
+          default: router.push('/');
+        }
       } else {
-        Alert.alert('Erreur', data.message || 'Une erreur est survenue.');
+        Alert.alert("Erreur", data.message || "Inscription échouée.");
       }
-    } catch (error) {
-      Alert.alert('Erreur', 'Connexion au serveur impossible.');
+    } catch (err) {
+      Alert.alert("Erreur serveur", "Veuillez réessayer.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -85,130 +93,125 @@ export default function Signup() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Créer un compte</Text>
 
-      <RoundedInput
-        placeholder="Nom"
-        icon="person"
-        value={form.nom}
-        onChangeText={(text: string) => handleChange('nom', text)}
-      />
+      <View style={styles.row}>
+        <TextInput placeholder="Nom" style={styles.input} value={nom} onChangeText={setNom} />
+        <TextInput placeholder="Prénom" style={styles.input} value={prenom} onChangeText={setPrenom} />
+      </View>
 
-      <RoundedInput
-        placeholder="Prénom"
-        icon="person-outline"
-        value={form.prenom}
-        onChangeText={(text: string) => handleChange('prenom', text)}
-      />
-
-      <RoundedInput
-        placeholder="Email"
-        icon="email"
-        keyboardType="email-address"
-        value={form.email}
-        onChangeText={(text: string) => handleChange('email', text)}
-      />
-
-      <RoundedInput
-        placeholder="CIN"
-        icon="badge"
-        keyboardType="numeric"
-        value={form.cin}
-        onChangeText={(text: string) => handleChange('cin', text)}
-      />
-
-      <RoundedInput
-        placeholder="Adresse"
-        icon="location-on"
-        value={form.adresse}
-        onChangeText={(text: string) => handleChange('adresse', text)}
-      />
-
-      <RoundedInput
-        placeholder="Téléphone"
-        icon="phone"
-        keyboardType="phone-pad"
-        value={form.telephone}
-        onChangeText={(text: string) => handleChange('telephone', text)}
-      />
-
-      <RoundedInput
-        placeholder="Mot de passe"
-        icon="lock"
-        secureTextEntry
-        value={form.password}
-        onChangeText={(text: string) => handleChange('password', text)}
-      />
-
-      <Text style={styles.label}>Rôle</Text>
-
-      <SelectList
-        data={roles}
-        setSelected={(val: string) => handleChange('role', val)}
-        placeholder="Sélectionnez un rôle"
-        search={false}
-        boxStyles={styles.dropdownBox}
-        inputStyles={styles.dropdownInput}
-        dropdownStyles={styles.dropdownList}
-        dropdownTextStyles={styles.dropdownText}
-        arrowicon={<Ionicons name="chevron-down" size={18} color={colors.muted} />}
-      />
-
-      <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-        <Text style={styles.submitText}>Continuer</Text>
+      <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
+        <Text>{dateNaissance ? dateNaissance.toLocaleDateString() : 'Date de naissance'}</Text>
       </TouchableOpacity>
+      {showDatePicker && (
+        <DateTimePicker
+          value={dateNaissance || new Date()}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={(_, date) => {
+            setShowDatePicker(false);
+            if (date) setDateNaissance(date);
+          }}
+        />
+      )}
+
+      <TextInput placeholder="Email" style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" />
+      <TextInput placeholder="Téléphone" style={styles.input} value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
+      <TextInput placeholder="Adresse" style={styles.input} value={adresse} onChangeText={setAdresse} />
+      <TextInput placeholder="CIN" style={styles.input} value={cin} onChangeText={setCin} keyboardType="numeric" />
+
+      <TextInput placeholder="Mot de passe" style={styles.input} secureTextEntry value={password} onChangeText={setPassword} />
+      <TextInput placeholder="Confirmer le mot de passe" style={styles.input} secureTextEntry value={confirmPassword} onChangeText={setConfirmPassword} />
+
+      <Text style={styles.hint}>8 caractères min. avec majuscule, minuscule, chiffre, symbole.</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Rôle"
+        value={role}
+        onFocus={() => Alert.alert("Sélection", "Rôle à sélectionner via menu déroulant dans version finale.")}
+        onChangeText={setRole}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Région"
+        value={region}
+        onFocus={() => Alert.alert("Sélection", "Région à sélectionner via menu déroulant dans version finale.")}
+        onChangeText={setRegion}
+      />
+
+      <TouchableOpacity onPress={handleSubmit} style={styles.button} disabled={loading}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Créer un compte</Text>}
+      </TouchableOpacity>
+
+      <Text style={styles.loginLink}>
+        Déjà inscrit ? <Text onPress={() => router.push('/login')} style={styles.link}>Se connecter</Text>
+      </Text>
     </ScrollView>
   );
-}
+};
 
+export default Signup;
 const styles = StyleSheet.create({
   container: {
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: '#fdf6f0',
     flexGrow: 1,
-    backgroundColor: colors.background,
-    padding: 24,
+    alignItems: 'center'
+  },
+  image: {
+    width: 140,
+    height: 140,
+    marginBottom: 15,
+    resizeMode: 'contain'
   },
   title: {
-    fontSize: 24,
-    color: colors.primary,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-  label: {
-    color: colors.text,
-    marginTop: 20,
-    marginBottom: 8,
+    fontSize: 22,
     fontWeight: '600',
-    fontSize: 16,
+    color: '#3e2f2c',
+    marginBottom: 20
   },
-  dropdownBox: {
-    backgroundColor: colors.white,
-    borderColor: colors.accent,
-    borderWidth: 1.5,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 20,
+  input: {
+    width: '100%',
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderColor: '#d8cfc8',
+    borderWidth: 1
   },
-  dropdownInput: {
-    color: colors.text,
-    fontSize: 15,
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 10
   },
-  dropdownList: {
-    backgroundColor: colors.white,
-  },
-  dropdownText: {
-    color: colors.text,
-    fontSize: 15,
-  },
-  submitBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: 10,
+  button: {
+    backgroundColor: '#7a5c58',
+    padding: 14,
+    borderRadius: 8,
+    width: '100%',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 10
   },
-  submitText: {
-    color: colors.white,
-    fontSize: 16,
+  buttonText: {
+    color: '#fff',
     fontWeight: '600',
+    fontSize: 16
   },
+  hint: {
+    fontSize: 12,
+    color: '#7a5c58',
+    marginBottom: 10
+  },
+  loginLink: {
+    marginTop: 20,
+    color: '#3e2f2c'
+  },
+  link: {
+    fontWeight: 'bold',
+    color: '#7a5c58'
+  }
 });
+

@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
 interface Patient {
   _id: string;
@@ -34,6 +42,7 @@ export default function DoctorHome() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,16 +54,22 @@ export default function DoctorHome() {
         }
 
         const [doctorRes, aptRes] = await Promise.all([
-          axios.get(`http://192.168.96.83:5001/api/users/${userId}`),
-          axios.get(`http://192.168.96.83:5001/api/doctor/appointments/${userId}`)
+          axios.get(`http://192.168.93.83:5001/api/User/${userId}`),
+          axios.get(`http://192.168.93.83:5001/api/doctor/appointments/${userId}`)
         ]);
 
         setDoctor(doctorRes.data);
 
-        const confirmed = aptRes.data.filter(
-          (apt: Appointment) => apt.status === 'confirmed'
-        );
-        setAppointments(confirmed);
+        const now = new Date();
+        const confirmedFutureAppointments = aptRes.data
+          .filter((apt: Appointment) =>
+            apt.status === 'confirmed' && new Date(apt.date) >= now
+          )
+          .sort((a: Appointment, b: Appointment) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime()
+          );
+
+        setAppointments(confirmedFutureAppointments);
       } catch (err) {
         console.error("❌ Erreur:", err);
         setError("Impossible de charger les données");
@@ -74,6 +89,15 @@ export default function DoctorHome() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleCardPress = async (patientId: string) => {
+    try {
+      await AsyncStorage.setItem('patientId', patientId);
+      router.push('/dashboard_doctor/PatientProfileDoctor');
+    } catch (err) {
+      console.error("Erreur lors de la sauvegarde du patientId :", err);
+    }
   };
 
   if (loading) {
@@ -103,7 +127,11 @@ export default function DoctorHome() {
         <Text style={styles.noData}>Aucun rendez-vous confirmé</Text>
       ) : (
         appointments.map((apt) => (
-          <View key={apt._id} style={styles.appointmentCard}>
+          <TouchableOpacity
+            key={apt._id}
+            style={styles.appointmentCard}
+            onPress={() => handleCardPress(apt.patient._id)}
+          >
             <Text style={styles.appointmentTitle}>
               👤 Patient : {apt.patient.prenom} {apt.patient.nom}
             </Text>
@@ -112,7 +140,7 @@ export default function DoctorHome() {
             <Text style={styles.text}>🗓️ {formatDate(apt.date)}</Text>
             {apt.reason && <Text style={styles.text}>📝 Motif : {apt.reason}</Text>}
             <Text style={styles.status}>✅ Confirmé</Text>
-          </View>
+          </TouchableOpacity>
         ))
       )}
     </ScrollView>

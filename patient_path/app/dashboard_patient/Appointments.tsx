@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.93.83:5001';
 
 interface Appointment {
   _id: string;

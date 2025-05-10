@@ -3,16 +3,16 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Image } fro
 import { useRouter } from 'expo-router';
 import { colors } from '../theme';
 
-const API_BASE_URL = "http://192.168.135.83:5001";
+const API_BASE_URL = "http://192.168.93.83:5001";
 
 // Dashboards selon rôle
 const DASHBOARD_PATHS = {
   patient: '/dashboard_patient/home',
   doctor: '/dashboard_doctor/home',
-  laboratoire: '/dashboard_laboratoire/home',
+  labs: '/dashboard_laboratoire/home',
   ambulancier: '/dashboard_ambulancier/home',
   cabinet: '/dashboard_cabinet/home',
-  hopital: '/dashboard_hopital/home',
+  hospital: '/dashboard_hospital/home',
 } as const;
 
 type Role = keyof typeof DASHBOARD_PATHS;
