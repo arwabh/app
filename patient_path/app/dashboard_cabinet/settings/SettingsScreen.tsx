@@ -12,7 +12,7 @@ export default function SettingsScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Compte</Text>
-        <TouchableOpacity style={styles.item} onPress={() => router.push('/settings/EditProfile')}>
+        <TouchableOpacity style={styles.item} onPress={() => router.push('/../settings/EditProfile')}>
           <Text style={styles.itemText}>Modifier profil</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.item} onPress={() => router.push('/settings/EditPassword')}>
