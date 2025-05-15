@@ -5,7 +5,6 @@ import {
   Image,
   TextInput,
   TouchableOpacity,
-  Alert,
   StyleSheet,
   ScrollView,
   Modal,
@@ -14,10 +13,10 @@ import {
 import axios from 'axios';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker';
 
-const API_BASE_URL = 'http://192.168.93.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 const specialites = [
   'Cardiologie', 'Dermatologie', 'Gynécologie', 'Neurologie', 'Pédiatrie',
@@ -29,7 +28,8 @@ export default function UnifiedProfile() {
   const { id } = useLocalSearchParams();
   const [user, setUser] = useState<any>(null);
   const [reason, setReason] = useState('');
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSpecialty, setSelectedSpecialty] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -43,8 +43,8 @@ export default function UnifiedProfile() {
 
   const handleSubmit = async () => {
     const patientId = await AsyncStorage.getItem('userId');
-    if (!selectedDate || (!reason && !selectedSpecialty) || !patientId || !user?._id) {
-      Alert.alert('Veuillez remplir tous les champs');
+    if ((!reason && !selectedSpecialty) || !patientId || !user?._id) {
+      alert('Veuillez remplir tous les champs');
       return;
     }
 
@@ -57,17 +57,15 @@ export default function UnifiedProfile() {
         type: 'medical',
       });
 
-      // ✅ Affiche le modal de succès
       setModalVisible(true);
 
-      // ✅ Redirige vers le tableau de bord après 3 secondes
       setTimeout(() => {
         setModalVisible(false);
         router.push('/dashboard_patient/home');
       }, 3000);
     } catch (error) {
       console.error(error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de la prise de rendez-vous.');
+      alert('Erreur lors de la prise de rendez-vous');
     }
   };
 
@@ -86,35 +84,46 @@ export default function UnifiedProfile() {
       </View>
 
       <View style={styles.form}>
-        <Text style={styles.label}>📅 Choisissez une date :</Text>
-        <View style={styles.calendarBox}>
-          <DatePicker
-            selected={selectedDate}
-            onChange={(date) => date && setSelectedDate(date)}
-            dateFormat="P"
-            minDate={new Date()}
-            placeholderText="Choisir date"
-            className="form-control"
+        <Text style={styles.label}>Choisir la date :</Text>
+        <TouchableOpacity
+          style={styles.dateInput}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Text style={styles.dateText}>
+            {selectedDate.toLocaleDateString()}
+          </Text>
+        </TouchableOpacity>
+        {showDatePicker && (
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
+            minimumDate={new Date()}
+            display="default"
+            onChange={(event, date) => {
+              setShowDatePicker(false);
+              if (date) setSelectedDate(date);
+            }}
           />
-        </View>
+        )}
 
         {user.roles.includes('Hospital') ? (
           <>
-            <Text style={styles.label}>🏥 Spécialité :</Text>
-            <select
-              style={styles.select}
-              value={selectedSpecialty}
-              onChange={(e) => setSelectedSpecialty(e.target.value)}
-            >
-              <option value="">-- Choisir une spécialité --</option>
-              {specialites.map((spec, idx) => (
-                <option key={idx} value={spec}>{spec}</option>
-              ))}
-            </select>
+            <Text style={styles.label}>Spécialité :</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedSpecialty}
+                onValueChange={(itemValue) => setSelectedSpecialty(itemValue)}
+              >
+                <Picker.Item label="-- Choisir une spécialité --" value="" />
+                {specialites.map((spec, idx) => (
+                  <Picker.Item key={idx} label={spec} value={spec} />
+                ))}
+              </Picker>
+            </View>
           </>
         ) : (
           <>
-            <Text style={styles.label}>📝 Motif :</Text>
+            <Text style={styles.label}>Motif :</Text>
             <TextInput
               style={styles.textarea}
               placeholder="Motif du rendez-vous"
@@ -130,12 +139,7 @@ export default function UnifiedProfile() {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ Modal de confirmation */}
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-      >
+      <Modal visible={modalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={{ fontSize: 16, fontWeight: 'bold', color: 'green', textAlign: 'center' }}>
@@ -152,86 +156,64 @@ export default function UnifiedProfile() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    backgroundColor: '#e9f1ff',
-    flexGrow: 1,
-  },
+  container: { padding: 20, backgroundColor: '#F0FAF9', flexGrow: 1 },
   card: {
     alignItems: 'center',
     backgroundColor: '#fff',
     padding: 20,
-    borderRadius: 10,
+    borderRadius: 16,
     marginBottom: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 6,
-    elevation: 2,
+    elevation: 3,
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 10,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1e3a8a',
-  },
-  specialty: {
-    color: '#666',
-    marginVertical: 4,
-  },
-  address: {
-    color: '#444',
-  },
+  avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 10 },
+  name: { fontSize: 20, fontWeight: 'bold', color: '#226D68' },
+  specialty: { color: '#666', marginVertical: 4 },
+  address: { color: '#444' },
   form: {
     backgroundColor: '#fff',
     padding: 20,
-    borderRadius: 10,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 1,
+    marginTop: 10,
   },
-  label: {
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  calendarBox: {
-    backgroundColor: '#f1f5f9',
-    padding: 10,
+  label: { fontWeight: '700', marginBottom: 8, color: '#1c3e57' },
+  dateInput: {
+    backgroundColor: '#e8f6f3',
+    padding: 12,
     borderRadius: 8,
     marginBottom: 16,
+  },
+  dateText: { color: '#226D68', fontWeight: 'bold' },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    marginBottom: 16,
+    overflow: 'hidden',
   },
   textarea: {
     borderWidth: 1,
     borderColor: '#ccc',
     padding: 12,
-    borderRadius: 6,
+    borderRadius: 8,
     height: 100,
     textAlignVertical: 'top',
     marginBottom: 16,
-    backgroundColor: '#fff',
-  },
-  select: {
-    width: '100%',
-    padding: 10,
-    borderRadius: 6,
-    borderColor: '#ccc',
-    marginBottom: 16,
+    backgroundColor: '#f9f9f9',
   },
   button: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#226D68',
     padding: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
-  buttonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
+  buttonText: { color: 'white', fontWeight: 'bold' },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -242,7 +224,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 24,
     borderRadius: 12,
-    maxWidth: 300,
+    width: 300,
     shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowRadius: 6,

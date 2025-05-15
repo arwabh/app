@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Button, TextInput, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 export default function Position() {
   const [location, setLocation] = useState<any>(null);

@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://192.168.93.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 interface Appointment {
   _id: string;
@@ -33,7 +33,19 @@ export default function Chat() {
       try {
         const res = await axios.get(`${API_BASE_URL}/api/appointments?patientId=${id}`);
         const confirmed = res.data.filter((apt: any) => apt.status === 'confirmed' && apt.doctorId);
-        setAppointments(confirmed);
+  
+        // ✅ Filtrer pour ne garder que le plus ancien par médecin
+        const uniqueAppointmentsMap = new Map<string, Appointment>();
+        confirmed.forEach((apt: Appointment) => {
+          const existing = uniqueAppointmentsMap.get(apt.doctorId._id);
+          if (!existing || new Date(apt.date) < new Date(existing.date)) {
+            uniqueAppointmentsMap.set(apt.doctorId._id, apt);
+          }
+        });
+  
+        const uniqueAppointments = Array.from(uniqueAppointmentsMap.values());
+        setAppointments(uniqueAppointments);
+  
       } catch (error) {
         console.error("Erreur chargement rendez-vous :", error);
       } finally {
@@ -42,6 +54,7 @@ export default function Chat() {
     };
     loadData();
   }, []);
+  
 
   const renderItem = ({ item }: { item: Appointment }) => (
     <TouchableOpacity

@@ -20,7 +20,7 @@ interface Notification {
   read: boolean;
 }
 
-const API_BASE_URL = 'http://192.168.93.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);

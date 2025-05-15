@@ -1,109 +1,161 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { useLocalSearchParams } from 'expo-router';
 
 const API_BASE_URL = 'http://192.168.93.83:5001';
 
-interface Conversation {
-  _id: string;
-  otherUserId: string;
-  otherUserName: string;
-  lastMessage: string;
-  lastMessageAt: string;
-  appointmentId?: string;
-  otherUserRole: string;
+interface Message {
+  _id?: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  createdAt: string;
+  isRead?: boolean;
 }
 
-export default function Chat() {
-  const router = useRouter();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+const PatientMessages = () => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const flatListRef = useRef<FlatList>(null);
+  const { patientId, appointmentId } = useLocalSearchParams();
+  const [doctorId, setDoctorId] = useState('');
 
   useEffect(() => {
-    const fetchConversations = async () => {
-      try {
-        const userId = await AsyncStorage.getItem('userId');
-        if (!userId) return;
-
-        const res = await axios.get(`${API_BASE_URL}/api/messages/conversations/${userId}`);
-        const uniqueMap: Record<string, Conversation> = {};
-        for (const convo of res.data) {
-          if (!uniqueMap[convo.otherUserId] ||
-              new Date(convo.lastMessageAt) > new Date(uniqueMap[convo.otherUserId].lastMessageAt)) {
-            uniqueMap[convo.otherUserId] = convo;
-          }
-        }
-        const sorted = Object.values(uniqueMap).sort(
-          (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
-        );
-        setConversations(sorted);
-      } catch (err) {
-        console.error('Erreur chargement des conversations:', err);
-      } finally {
-        setLoading(false);
-      }
+    const loadUserId = async () => {
+      const storedId = await AsyncStorage.getItem('userId');
+      if (storedId) setDoctorId(storedId);
     };
-    fetchConversations();
+    loadUserId();
   }, []);
 
-  const handlePress = (conversation: Conversation) => {
-    router.push({
-      pathname: '/dashboard_doctor/ChatScreen', // remplacez par dashboard_doctor/ChatScreen ou dashboard_labo/ChatScreen si besoin
-      params: {
-        receiverId: conversation.otherUserId,
-        receiverName: conversation.otherUserName,
-        appointmentId: conversation.appointmentId || '',
-      },
-    });
+  useEffect(() => {
+    if (doctorId && appointmentId) fetchMessages();
+  }, [doctorId, appointmentId]);
+
+  const fetchMessages = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API_BASE_URL}/api/messages/${appointmentId}?userId=${doctorId}`);
+      setMessages(res.data);
+
+      const unreadMessages = res.data
+        .filter((msg: Message) => msg.receiverId === doctorId && !msg.isRead)
+        .map((msg: Message) => msg._id);
+
+      if (unreadMessages.length > 0) {
+        await axios.put(`${API_BASE_URL}/api/messages/read`, { messageIds: unreadMessages });
+      }
+    } catch (err) {
+      setError("Erreur lors du chargement des messages");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderItem = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity style={styles.chatItem} onPress={() => handlePress(item)}>
-      <Text style={styles.chatName}>{item.otherUserName} ({item.otherUserRole})</Text>
-      <Text style={styles.preview}>{item.lastMessage}</Text>
-    </TouchableOpacity>
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+    try {
+      setLoading(true);
+      const res = await axios.post(`${API_BASE_URL}/api/messages`, {
+        senderId: doctorId,
+        receiverId: patientId,
+        appointmentId,
+        content: newMessage,
+      });
+
+      setMessages(prev => [...prev, res.data]);
+      setNewMessage('');
+      flatListRef.current?.scrollToEnd({ animated: true });
+    } catch (err) {
+      setError("Erreur lors de l'envoi du message");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderMessage = ({ item }: { item: Message }) => (
+    <View style={[
+      styles.message,
+      item.senderId === doctorId ? styles.sent : styles.received,
+    ]}>
+      <Text style={styles.messageText}>{item.content}</Text>
+      <Text style={styles.messageTime}>{new Date(item.createdAt).toLocaleTimeString('fr-FR')}</Text>
+    </View>
   );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>💬 Conversations</Text>
-      <TouchableOpacity
-        style={styles.chatItem}
-        onPress={() => router.push('/dashboard_doctor/ChatScreen?bot=true')}
-      >
-        <Text style={styles.chatName}>🤖 Chatbot Médical</Text>
-      </TouchableOpacity>
-      {loading ? (
-        <ActivityIndicator size="large" color="#038A91" />
-      ) : (
-        <FlatList
-          data={conversations}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
+      {error && <Text style={styles.error}>{error}</Text>}
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        renderItem={renderMessage}
+        keyExtractor={(item, index) => item._id || index.toString()}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        contentContainerStyle={styles.list}
+      />
+      <View style={styles.inputContainer}>
+        <TextInput
+          value={newMessage}
+          onChangeText={setNewMessage}
+          placeholder="Message..."
+          style={styles.input}
         />
-      )}
+        <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
+          <Text style={styles.sendButtonText}>Envoyer</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: '#FAFAFA', flex: 1 },
-  header: { fontSize: 20, fontWeight: 'bold', marginBottom: 16 },
-  chatItem: {
-    padding: 12,
-    backgroundColor: '#F0F4F8',
-    borderRadius: 10,
-    marginBottom: 10,
+  container: { flex: 1, backgroundColor: '#f4f6f8' },
+  list: { padding: 10 },
+  message: {
+    marginVertical: 6,
+    padding: 10,
+    borderRadius: 8,
+    maxWidth: '75%',
   },
-  chatName: { fontSize: 16, fontWeight: '600', color: '#038A91' },
-  preview: { color: '#555', marginTop: 4 },
+  sent: {
+    backgroundColor: '#1976d2',
+    alignSelf: 'flex-end',
+  },
+  received: {
+    backgroundColor: '#e0e0e0',
+    alignSelf: 'flex-start',
+  },
+  messageText: { color: '#000' },
+  messageTime: { fontSize: 10, color: '#555', marginTop: 4 },
+  inputContainer: {
+    flexDirection: 'row',
+    padding: 10,
+    borderTopWidth: 1,
+    borderColor: '#ccc',
+    backgroundColor: '#fff',
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    fontSize: 16,
+  },
+  sendButton: {
+    marginLeft: 10,
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    justifyContent: 'center',
+  },
+  sendButtonText: { color: '#fff', fontWeight: 'bold' },
+  error: { color: 'red', textAlign: 'center' },
 });
+
+export default PatientMessages;

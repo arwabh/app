@@ -1,5 +1,4 @@
 
-
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -44,7 +43,7 @@ app.use(cors({
   
 // Enable pre-flight for all routes
 app.options('*', cors({
-    origin: 'http://localhost:5173',
+    origin: 'http://localhost:5001',
     credentials: true
 }));
 
@@ -272,27 +271,29 @@ app.post('/login', async (req, res) => {
     const user = await User.findOne({ email });
 
     if (!user) {
-      return res.status(400).json({ message: 'Utilisateur non trouvé' });
+      return res.status(400).json({ message: "Utilisateur non trouvé" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Mot de passe incorrect' });
+      return res.status(401).json({ message: "Mot de passe incorrect" });
     }
 
-    // ✅ On extrait le rôle principal de l'utilisateur
-    const role = user.roles?.[0] || 'unknown';
-
-    return res.json({
-      message: 'Connexion réussie',
-      uid: user._id,
+    // ✅ Structure claire et sécurisée envoyée au frontend
+    return res.status(200).json({
+      _id: user._id.toString(),           // Assure que c’est bien une string
       email: user.email,
-      role: user.roles || 'unknown',
+      role: user.roles, 
+      nom: user.nom,
+  prenom: user.prenom,
+  photo: user.photo,                  // ['patient'] ou autre
+      profileCompleted: user.profileCompleted,
+      isValidated: user.isValidated
+    });
 
-    })
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Erreur serveur' });
+    console.error("❌ Erreur serveur:", err);
+    res.status(500).json({ message: "Erreur serveur pendant la connexion" });
   }
 });
 
@@ -333,15 +334,21 @@ app.get('/api/users/:id', async (req, res) => {
   
   
   app.get('/api/patient/appointments/:id', async (req, res) => {
+    const { id } = req.params;
+  
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'ID patient invalide' });
+    }
+  
     try {
-      const appointments = await Appointment.find({ patientId: req.params.id })
-        .sort({ date: 1 });
+      const appointments = await Appointment.find({ patientId: id });
       res.json(appointments);
-    } catch (error) {
-      console.error('Erreur appointments:', error);
+    } catch (err) {
+      console.error('Erreur appointments:', err);
       res.status(500).json({ message: 'Erreur serveur' });
     }
   });
+  
   
   
   app.get('/api/patient/doctors/:id', async (req, res) => {
@@ -1149,38 +1156,38 @@ app.get('/users', async(req, res) => {
 
 // 📩 Route de contact avec envoi d'email réel
 app.post('/contact', async(req, res) => {
-    const { name, email, message } = req.body;
+  const { name, email, message } = req.body;
 
-    if (!name || !email || !message) {
-        return res.status(400).json({ message: 'Tous les champs sont requis.' });
-    }
+  if (!name || !email || !message) {
+      return res.status(400).json({ message: 'Tous les champs sont requis.' });
+  }
 
-    try {
-        // Transporteur nodemailer (utilise Gmail ici)
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: 'patientpath2@gmail.com',
-                pass: 'ppuu fmjc lzmz ntea' // ⚠️ Utilise un mot de passe d'application (voir note ci-dessous)
-            }
-        });
+  try {
+      // Transporteur nodemailer (utilise Gmail ici)
+      const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+              user: 'patientpath2@gmail.com',
+              pass: 'ppuu fmjc lzmz ntea' // ⚠️ Utilise un mot de passe d'application (voir note ci-dessous)
+          }
+      });
 
-        // Options du mail
-        const mailOptions = {
-            from: email,
-            to: 'patientpath2@gmail.com',
-            subject: `📥 Nouveau message de ${name}`,
-            text: `Nom: ${name}\nEmail: ${email}\n\nMessage:\n${message}`
-        };
+      // Options du mail
+      const mailOptions = {
+          from: email,
+          to: 'patientpath2@gmail.com',
+          subject: `📥 Nouveau message de ${name}`,
+          text: `Nom: ${name}\nEmail: ${email}\n\nMessage:\n${message}`
+      };
 
-        // Envoi du mail
-        await transporter.sendMail(mailOptions);
-        res.status(200).json({ message: '✅ Message envoyé avec succès !' });
+      // Envoi du mail
+      await transporter.sendMail(mailOptions);
+      res.status(200).json({ message: '✅ Message envoyé avec succès !' });
 
-    } catch (error) {
-        console.error('❌ Erreur envoi email :', error); // AJOUTER
-        res.status(500).json({ message: "Erreur lors de l'envoi du message.", error: error.message });
-    }
+  } catch (error) {
+      console.error('❌ Erreur envoi email :', error); // AJOUTER
+      res.status(500).json({ message: "Erreur lors de l'envoi du message.", error: error.message });
+  }
 
 });
 
@@ -1278,6 +1285,7 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+
 app.get('/api/messages/:appointmentId', async (req, res) => {
   const { appointmentId } = req.params;
   try {
@@ -1306,68 +1314,52 @@ app.post('/api/messages', async (req, res) => {
   }
 });
 
-('/api/appointments/:appointmentId/status', async(req, res) => {
-    try {
-        const { appointmentId } = req.params;
-        const { status } = req.body;
-
-        const appointment = await Appointment.findByIdAndUpdate(
-            appointapp.putmentId, { status }, { new: true }
-        );
-
-        if (!appointment) {
-            return res.status(404).json({ message: "Rendez-vous non trouvé." });
-        }
-        appointment.status = status;
-        await appointment.save();
-        // Notification pour le patient si confirmé
-        await createNotification(
-          appointment.patient._id,
-          `Votre rendez-vous du ${appointment.date.toLocaleString()} a été ${status === 'confirmed' ? 'confirmé' : 'annulé'}.`
-        );
-
-        res.status(200).json(appointment);
-    } catch (error) {
-        console.error("❌ Erreur maj statut :", error);
-        res.status(500).json({ message: "Erreur serveur" });
-    }
-});
-
-
-
-
-
-
-
-
-
-app.get('/api/notifications/:userId', async(req, res) => {
-    try {
-        const { userId } = req.params;
-        const notifications = await Notification.find({ userId })
-            .sort({ createdAt: -1 }) // Utiliser createdAt pour le tri
-            .lean(); // Pour une meilleure performance
-
-        res.status(200).json(notifications);
-    } catch (error) {
-        console.error("❌ Erreur notifications:", error);
-        res.status(500).json({ message: "Erreur serveur" });
-    }
-});
-
-app.get('/api/notifications/:userId', async(req, res) => {
+app.put('/api/appointments/:appointmentId/status', async (req, res) => {
   try {
-      const { userId } = req.params;
-      const notifications = await Notification.find({ userId })
-          .sort({ createdAt: -1 }) // Utiliser createdAt pour le tri
-          .lean(); // Pour une meilleure performance
+    const { appointmentId } = req.params;
+    const { status } = req.body;
 
-      res.status(200).json(notifications);
+    const appointment = await Appointment.findByIdAndUpdate(
+      appointmentId,
+      { status },
+      { new: true }
+    );
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Rendez-vous non trouvé." });
+    }
+
+    // ✅ Notification pour le patient si confirmé ou annulé
+    await createNotification(
+      appointment.patient,
+      `Votre rendez-vous du ${new Date(appointment.date).toLocaleString()} a été ${status === 'confirmed' ? 'confirmé' : 'annulé'}.`
+    );
+
+    res.status(200).json({ message: 'Statut mis à jour avec succès', appointment });
   } catch (error) {
-      console.error("❌ Erreur notifications:", error);
-      res.status(500).json({ message: "Erreur serveur" });
+    console.error("❌ Erreur maj statut :", error);
+    res.status(500).json({ message: "Erreur serveur" });
   }
 });
+
+
+
+app.get('/api/notifications/:userId', async (req, res) => {
+  const { userId } = req.params;
+
+  if (!userId || userId === 'undefined') {
+    return res.status(400).json({ message: "userId manquant ou invalide" });
+  }
+
+  try {
+    const notifications = await Notification.find({ userId });
+    res.json(notifications);
+  } catch (error) {
+    console.error('❌ Erreur notifications:', error);
+    res.status(500).json({ message: 'Erreur serveur lors de la récupération des notifications.' });
+  }
+});
+
 app.get('/api/patient/notifications/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1432,6 +1424,7 @@ app.get('/api/patient/profile/:id', async (req, res) => {
       return res.status(404).json({ message: 'Données patient non trouvées.' });
     }
 
+    // Calcul âge
     let age = null;
     if (user.dateNaissance) {
       const birthDate = new Date(user.dateNaissance);
@@ -1443,6 +1436,7 @@ app.get('/api/patient/profile/:id', async (req, res) => {
       }
     }
 
+    // ✅ Retour complet avec documents
     res.status(200).json({
       nom: user.nom,
       prenom: user.prenom,
@@ -1455,12 +1449,16 @@ app.get('/api/patient/profile/:id', async (req, res) => {
       allergies: patientData.allergies || [],
       emergencyContact: patientData.emergencyContact || {},
       medicalHistory: patientData.medicalHistory || '',
+      medicalDocuments: patientData.medicalDocuments || [] // ✅ AJOUTÉ ICI
     });
-  } catch (err) {
-    console.error("❌ Erreur récupération profil patient :", err);
-    res.status(500).json({ message: "Erreur serveur." });
+
+  } catch (error) {
+    console.error('❌ Erreur GET /patient/profile/:id :', error);
+    res.status(500).json({ message: 'Erreur serveur lors de la récupération du profil.' });
   }
 });
+
+ 
 
 
 
@@ -1565,6 +1563,55 @@ app.delete('/api/patient/delete-report/:id', async (req, res) => {
   }
 });
 
+
+app.post('/api/patient/add-document/:id', upload.single('file'), async (req, res) => {
+  try {
+    const patient = await Patient.findOne({ userId: req.params.id });
+    if (!patient) return res.status(404).json({ message: "Patient introuvable" });
+
+    const document = {
+      fileName: req.file.originalname,
+      fileType: req.file.mimetype,
+      filePath: req.file.path,
+      description: req.body.description || '',
+    };
+
+    patient.medicalDocuments.push(document);
+    await patient.save();
+
+    res.status(200).json({ message: 'Document ajouté avec succès' });
+  } catch (error) {
+    console.error('Erreur ajout document patient:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+app.post('/api/patient/upload-document/:userId', upload.single('document'), async (req, res) => {
+  try {
+    const { description } = req.body;
+    const { originalname, mimetype, path } = req.file;
+    const userId = req.params.userId;
+
+    const document = {
+      fileName: originalname,
+      fileType: mimetype,
+      filePath: `/uploads/${req.file.filename}`,
+      description
+    };
+
+    const updatedPatient = await Patient.findOneAndUpdate(
+      { userId },
+      { $push: { medicalDocuments: document } },
+      { new: true }
+    );
+
+    if (!updatedPatient) return res.status(404).json({ message: 'Patient non trouvé.' });
+    res.status(200).json(updatedPatient);
+  } catch (err) {
+    console.error('❌ Upload doc error:', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+
 // UPLOAD lab result
 app.post('/api/patient/upload-analysis', uploadLabResult.single('file'), async (req, res) => {
   try {
@@ -1627,6 +1674,20 @@ app.get('/api/messages/conversations/:doctorId', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur.' });
   }
 });
+// Récupérer tous les messages d'un user (peu importe appointmentId)
+app.get('/api/messages/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const messages = await Message.find({
+      $or: [{ senderId: userId }, { receiverId: userId }]
+    }).sort({ sentAt: 1 }); // Tri par date croissante
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error('❌ Erreur fetch messages user:', error);
+    res.status(500).json({ message: "Erreur lors de la récupération des messages." });
+  }
+});
+
 app.get('/api/messages/:appointmentId', async (req, res) => {
   try {
     const { appointmentId } = req.params;
@@ -2703,8 +2764,63 @@ app.get('/hopitaux', async (req, res) => {
       res.status(500).json({ success: false, message: 'Erreur serveur.' });
     }
   });
+  app.put('/api/user/update-profile/:id', async (req, res) => {
+    try {
+      const { nom, prenom, email, telephone } = req.body;
+      const updatedUser = await User.findByIdAndUpdate(
+        req.params.id,
+        { nom, prenom, email, telephone },
+        { new: true }
+      );
+      res.status(200).json(updatedUser);
+    } catch (error) {
+      console.error('Erreur update profile:', error);
+      res.status(500).json({ message: 'Erreur mise à jour profil.' });
+    }
+  });
+  app.put('/api/user/update-password/:id', async (req, res) => {
+    try {
+      const { oldPassword, newPassword } = req.body;
+      const user = await User.findById(req.params.id);
+  
+      const isMatch = await bcrypt.compare(oldPassword, user.password);
+      if (!isMatch) return res.status(401).json({ message: 'Ancien mot de passe incorrect.' });
+  
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      user.password = hashedPassword;
+      await user.save();
+  
+      res.status(200).json({ message: 'Mot de passe mis à jour.' });
+    } catch (error) {
+      console.error('Erreur update password:', error);
+      res.status(500).json({ message: 'Erreur mise à jour mot de passe.' });
+    }
+  });
+  app.delete('/api/user/delete-account/:id', async (req, res) => {
+    try {
+      await User.findByIdAndDelete(req.params.id);
+      res.status(200).json({ message: 'Compte supprimé.' });
+    } catch (error) {
+      console.error('Erreur suppression compte:', error);
+      res.status(500).json({ message: 'Erreur suppression compte.' });
+    }
+  });
+  app.get('/api/support/privacy-policy', (req, res) => {
+    res.status(200).json({
+      title: 'Politique de confidentialité',
+      content: 'Votre vie privée est importante pour nous...'
+    });
+  });
+  app.get('/api/support/faq', (req, res) => {
+    res.status(200).json([
+      { question: 'Comment modifier mon profil ?', answer: 'Allez dans Paramètres > Compte > Modifier profil.' },
+      { question: 'Comment changer mon mot de passe ?', answer: 'Allez dans Paramètres > Compte > Modifier mot de passe.' },
+      { question: 'Mes données sont-elles sécurisées ?', answer: 'Oui, conformément à notre politique.' }
+    ]);
+  });
+  
   
 // Lancer le serveur
 app.listen(5001, '0.0.0.0', () => {
-  console.log('Server running on http://192.168.93.83:5001');
+  console.log('Server running on http://192.168.122.83:5001');
 });

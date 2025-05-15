@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // ✅ Import ajouté
 
-const API_BASE_URL = "http://192.168.93.83:5001";
+const API_BASE_URL = "http://192.168.122.83:5001";
 
 // Dashboards selon rôle
 const DASHBOARD_PATHS = {
@@ -38,8 +39,8 @@ export default function Login() {
       console.log("Données reçues:", data);
 
       if (res.ok) {
-        const roleRaw = data.role?.[0]; // Extrait le rôle du tableau
-        const role = roleRaw?.toLowerCase() as Role; // Convertit en minuscule
+        const roleRaw = data.role?.[0];
+        const role = roleRaw?.toLowerCase() as Role;
 
         console.log("🎯 Rôle détecté:", role);
 
@@ -47,6 +48,13 @@ export default function Login() {
           Alert.alert("Erreur", `Rôle non reconnu: ${role}`);
           return;
         }
+
+        // ✅ Enregistrement de l'ID utilisateur dans AsyncStorage
+       const userId = await AsyncStorage.setItem('userId', data._id);
+       const userNom = await AsyncStorage.setItem('userNom', data.nom);
+       const userPrenom = await AsyncStorage.setItem('userPrenom', data.prenom);
+
+       console.log("✅ userId enregistré dans AsyncStorage :", userId, userNom, userPrenom);
 
         const path: DashboardPath = DASHBOARD_PATHS[role];
         router.replace(path);

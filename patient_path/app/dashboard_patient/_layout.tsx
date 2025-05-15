@@ -4,7 +4,6 @@ import { DrawerContentScrollView, DrawerItem } from '@react-navigation/drawer';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { Text } from 'react-native';
 
 const API_BASE_URL = 'http://192.168.93.83:5001';
 
@@ -31,22 +30,22 @@ export default function PatientLayout() {
 
   useEffect(() => {
     fetchUnreadNotifications();
-
-    // Optionnel : mettre à jour toutes les 15 secondes
     const interval = setInterval(fetchUnreadNotifications, 15000);
     return () => clearInterval(interval);
   }, []);
 
   const menuItems = [
     { name: 'home', label: 'Accueil' },
-    { name: 'profile', label: 'Documents' },
+    { name: 'PatientInfoScreen', label: 'Mes informations' },
+    { name: 'MedicalDocumentsScreen', label: 'Documents médicaux' },
+    { name: 'LabResultsScreen', label: 'Résultats d’analyse' },
     { name: 'searchDoctor', label: 'Recherche' },
     { name: 'appointments', label: 'Rendez-vous' },
+    { name: 'SettingsScreen', label: 'Paramètre' },
+
     {
       name: 'notifications',
-      label: unreadCount > 0
-        ? `Notifications (${unreadCount})`
-        : 'Notifications'
+      label: unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications',
     },
     { name: 'chat', label: 'Messages' },
   ];

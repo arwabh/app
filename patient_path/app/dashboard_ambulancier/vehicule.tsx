@@ -13,7 +13,7 @@ import axios from 'axios';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.96.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 const types = ['Type A', 'Type B', 'Type C'];
 const statuts = ['Disponible', 'En service', 'En maintenance', 'Hors service'];

@@ -13,7 +13,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://192.168.93.83:5001';
+const API_BASE_URL = 'http://192.168.122.83:5001';
 
 export default function PatientProfile() {
   const { nom, prenom, telephone } = useLocalSearchParams();
